@@ -12,12 +12,18 @@ jobs:
 
     steps:
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.SERVER_IP }}
-          username: deploy
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SERVER_IP: ${{ secrets.SERVER_IP }}
+        run: |
+          # Write the key to a temp file with correct permissions
+          echo "$SSH_PRIVATE_KEY" > /tmp/deploy_key
+          chmod 600 /tmp/deploy_key
+
+          ssh -i /tmp/deploy_key \
+              -o StrictHostKeyChecking=no \
+              -o ConnectTimeout=10 \
+              deploy@$SERVER_IP << 'ENDSSH'
             set -e
             cd /opt/tarteel
 
@@ -32,6 +38,9 @@ jobs:
 
             echo "── Health check ──"
             sleep 5
-            curl -sf https://api.tarteel.live/health && echo " backend OK" || echo " backend not yet ready (may still be starting)"
+            curl -sf https://api.tarteel.live/health && echo " backend OK" || echo " backend not yet ready"
 
             echo "── Deploy complete ──"
+          ENDSSH
+
+          rm -f /tmp/deploy_key
