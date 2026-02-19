@@ -140,7 +140,18 @@ ssh deploy@YOUR_SERVER_IP
 
 ---
 
-## Step 5 — Install nginx + certbot
+## Step 5 — Clone the repo on the server
+
+```bash
+sudo mkdir -p /opt/tarteel
+sudo chown deploy:deploy /opt/tarteel
+git clone https://github.com/SAADAT-Abu/tarteel.git /opt/tarteel
+cd /opt/tarteel
+```
+
+---
+
+## Step 6 — Install nginx + certbot
 
 ```bash
 sudo apt-get install -y nginx certbot python3-certbot-nginx
@@ -169,17 +180,6 @@ sudo certbot --nginx \
 Verify auto-renewal is active:
 ```bash
 sudo systemctl status certbot.timer
-```
-
----
-
-## Step 6 — Clone the repo on the server
-
-```bash
-sudo mkdir -p /opt/tarteel
-sudo chown deploy:deploy /opt/tarteel
-git clone https://github.com/YOUR_USERNAME/tarteel.git /opt/tarteel
-cd /opt/tarteel
 ```
 
 ---
