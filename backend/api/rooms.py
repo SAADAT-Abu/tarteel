@@ -3,7 +3,7 @@ from datetime import timezone
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from database import get_db
 from models import User, RoomSlot, UserIshaSchedule, RoomParticipant
 from schemas.room import TonightRoomsResponse, RoomSlotResponse, JoinRoomResponse
@@ -41,11 +41,28 @@ async def get_tonight_rooms(
     )
     rooms = result.scalars().all()
 
+    # Count registered users per room preference for tonight's bucket
+    counts_result = await db.execute(
+        select(
+            User.rakats,
+            User.juz_per_night,
+            func.count(UserIshaSchedule.user_id).label("user_count"),
+        )
+        .join(UserIshaSchedule, UserIshaSchedule.user_id == User.id)
+        .where(UserIshaSchedule.isha_bucket_utc == schedule.isha_bucket_utc)
+        .group_by(User.rakats, User.juz_per_night)
+    )
+    registered_users = {
+        f"{row.rakats}_{float(row.juz_per_night):.1f}": row.user_count
+        for row in counts_result.all()
+    }
+
     return TonightRoomsResponse(
         ramadan_night=schedule.ramadan_night,
         isha_utc=schedule.isha_utc,
         isha_bucket_utc=schedule.isha_bucket_utc,
         rooms=[RoomSlotResponse.model_validate(r) for r in rooms],
+        registered_users=registered_users,
     )
 
 

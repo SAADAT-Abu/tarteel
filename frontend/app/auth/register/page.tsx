@@ -202,7 +202,10 @@ export default function RegisterPage() {
 
               <Field label="WhatsApp Number (optional)">
                 <input type="tel" value={form.phone} onChange={(e) => update("phone", e.target.value)}
-                  className={inputCls} placeholder="+44 7700 900123" />
+                  className={inputCls} placeholder="+1 555 000 0000" />
+                <p className="mt-1.5 text-xs text-gray-600">
+                  Include your country code — e.g. +44 7700 900123 · +92 300 000 0000 · +1 555 000 0000
+                </p>
               </Field>
 
               <div className="space-y-3 pt-1">

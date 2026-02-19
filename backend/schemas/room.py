@@ -27,6 +27,7 @@ class TonightRoomsResponse(BaseModel):
     isha_utc: datetime
     isha_bucket_utc: datetime
     rooms: list[RoomSlotResponse]
+    registered_users: dict[str, int] = {}  # e.g. {"8_1.0": 12, "8_0.5": 5}
 
 
 class JoinRoomResponse(BaseModel):
