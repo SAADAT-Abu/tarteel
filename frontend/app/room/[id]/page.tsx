@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { roomsApi, RoomSlot } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
@@ -11,7 +10,6 @@ import RakahIndicator from "@/components/RakahIndicator";
 type RoomStatus = "waiting" | "building" | "live" | "ended";
 
 export default function RoomPage({ params }: { params: { id: string } }) {
-  const router = useRouter();
   const { user: token } = useAuthStore();
   const [room, setRoom]                     = useState<RoomSlot | null>(null);
   const [status, setStatus]                 = useState<RoomStatus>("waiting");
@@ -22,8 +20,6 @@ export default function RoomPage({ params }: { params: { id: string } }) {
   const [error, setError]                   = useState("");
 
   useEffect(() => {
-    if (!token) { router.push("/auth/login"); return; }
-
     roomsApi.getRoom(params.id).then((res) => {
       const r = res.data;
       setRoom(r);
@@ -40,7 +36,7 @@ export default function RoomPage({ params }: { params: { id: string } }) {
       }
     }).catch(() => setError("Room not found"));
 
-    roomsApi.joinRoom(params.id).catch(() => {});
+    if (token) roomsApi.joinRoom(params.id).catch(() => {});
 
     const socket = getSocket();
     socket.emit("join_room", params.id);
@@ -58,7 +54,7 @@ export default function RoomPage({ params }: { params: { id: string } }) {
       socket.off("rakah_update");
       socket.off("room_ended");
     };
-  }, [params.id, token, router]);
+  }, [params.id, token]);
 
   if (error) return (
     <div className="min-h-screen bg-mosque-darkest flex items-center justify-center">
@@ -101,7 +97,7 @@ export default function RoomPage({ params }: { params: { id: string } }) {
           <div className="flex items-center gap-2">
             {status === "live" && <span className="live-dot" />}
             <span className="text-mosque-gold text-sm font-medium">
-              Night {room.ramadan_night} · {room.rakats} Rakats
+              {room.ramadan_night === 0 ? "Admin Test Room" : `Night ${room.ramadan_night}`} · {room.rakats} Rakats
             </span>
           </div>
           {participantCount > 0 && (
