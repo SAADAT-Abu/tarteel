@@ -11,19 +11,19 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - name: Deploy via SSH
+      - name: Load SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add server to known hosts
+        run: ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
+
+      - name: Deploy
         env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           SERVER_IP: ${{ secrets.SERVER_IP }}
         run: |
-          # Write the key to a temp file with correct permissions
-          echo "$SSH_PRIVATE_KEY" > /tmp/deploy_key
-          chmod 600 /tmp/deploy_key
-
-          ssh -i /tmp/deploy_key \
-              -o StrictHostKeyChecking=no \
-              -o ConnectTimeout=10 \
-              deploy@$SERVER_IP << 'ENDSSH'
+          ssh deploy@$SERVER_IP << 'ENDSSH'
             set -e
             cd /opt/tarteel
 
@@ -42,5 +42,3 @@ jobs:
 
             echo "── Deploy complete ──"
           ENDSSH
-
-          rm -f /tmp/deploy_key
