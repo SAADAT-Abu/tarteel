@@ -1,26 +1,43 @@
 """
 Build FFmpeg concat file for a room slot.
 
-Per-rakat audio sequence:
-  1.  Takbeer to enter (opening Allahu Akbar)
-  2.  Al-Fatiha (Surah 1, ayahs 1-7) — every rakat
-  3.  Assigned surah ayahs from the juz portion
-  4.  Ruku takbeer ("Allahu Akbar")
-  5.  Ruku dhikr  ("Subhana Rabbiyal Adheem" x3)
-  6.  Qawmah     ("Sami Allahu liman hamida")
-  7.  Tahmid     ("Rabbana wa lakal hamd" — brief standing)
-  8.  Sujood-1 takbeer ("Allahu Akbar")
-  9.  Sujood-1 dhikr   ("Subhana Rabbiyal A'la" x3)
-  10. Jilsah takbeer  ("Allahu Akbar" — rise to sitting)
-  11. Jilsah pause    (sitting between sujoods)
-  12. Sujood-2 takbeer ("Allahu Akbar")
-  13. Sujood-2 dhikr   ("Subhana Rabbiyal A'la" x3)
-  14. Rise takbeer     ("Allahu Akbar" — stand for next rakat) [not last]
-  --- After every even rakat: ---
-  15. Tashahhud (mid-prayer sitting)
-  16. Inter-set rest   [if more rakats follow]
-  --- Last rakat only: ---
-  17. Final tashahhud + tasleem
+Prayer structure (repeating 2-rakat units):
+
+  Rakat 1 of each pair:
+    1.  Allahu Akbar short          (opening takbeer)
+    2.  Silence 15s                 (niyyah / opening du'a)
+    3.  Al-Fatiha (Surah 1, 1-7)
+    4.  Juz ayahs (chunk N)
+    5.  Allahu Akbar short          → ruku
+    6.  Silence 15s                 (ruku dhikr)
+    7.  Sami Allahu liman hamida    (rise from ruku)
+    8.  Allahu Akbar short          → sujood 1
+    9.  Silence 15s                 (sujood 1 dhikr)
+    10. Allahu Akbar short          → jilsah (sit between sujoods)
+    11. Silence 10s                 (jilsah pause)
+    12. Allahu Akbar short          → sujood 2
+    13. Silence 15s                 (sujood 2 dhikr)
+    14. Allahu Akbar long           → rise and stand for rakat 2
+
+  Rakat 2 of each pair:
+    1.  Al-Fatiha (Surah 1, 1-7)
+    2.  Juz ayahs (chunk N)
+    3.  Allahu Akbar short          → ruku
+    4.  Silence 15s                 (ruku dhikr)
+    5.  Sami Allahu liman hamida    (rise from ruku)
+    6.  Allahu Akbar short          → sujood 1
+    7.  Silence 15s                 (sujood 1 dhikr)
+    8.  Allahu Akbar short          → jilsah
+    9.  Silence 10s                 (jilsah pause)
+    10. Allahu Akbar short          → sujood 2
+    11. Silence 45s                 (sujood 2 dhikr + rise + tashahhud)
+    12. Salam × 2                   (tasleem — closes this 2-rakat unit)
+
+  After every 4 rakats (not at the very end):
+    Silence 45s                     (rest between sets)
+
+  After the final rakat (8 or 20):
+    Silence 15s + Dua               (closing du'a)
 """
 import logging
 from pathlib import Path
@@ -46,7 +63,7 @@ def _misc(name: str) -> Path | None:
 
 
 def _add(segments: list[Path], p: Path | None) -> None:
-    """Append a path to segments only if the file exists."""
+    """Append path to segments only if the file exists."""
     if p is None:
         return
     if p.exists():
@@ -65,71 +82,58 @@ def _write_concat(entries: list[Path], output_path: Path) -> None:
 
 def build_rakat_segments(
     rakat_index: int,
-    total_rakats: int,
     ayahs: list[AyahKey],
     reciter: str,
 ) -> list[Path]:
     """
-    Build the ordered list of audio files for one complete rakat.
+    Build the ordered list of audio files for one rakat.
     rakat_index is 0-based.
+    Even index (0, 2, 4 …) = first rakat of a 2-rakat unit (has opening takbeer).
+    Odd index  (1, 3, 5 …) = second rakat of a 2-rakat unit (ends with tasleem).
     """
     segments: list[Path] = []
-    is_first = rakat_index == 0
-    is_last  = (rakat_index + 1) == total_rakats
-    is_even  = (rakat_index + 1) % 2 == 0  # 2nd, 4th, … rakat
+    is_first_of_pair = (rakat_index % 2 == 0)
 
-    # ── 1. Opening / transition takbeer ──────────────────────────────────
-    # First rakat uses the full opening takbeer (Takbiratul Ihram).
-    # Subsequent rakats use a shorter rise-takbeer (standing from tashahhud).
-    if is_first:
-        _add(segments, _misc("takbeer"))          # Takbiratul Ihram (entering salah)
-    else:
-        _add(segments, _silence("takbeer_2s"))    # "Allahu Akbar" → rising from tashahhud
+    # ── Opening (first rakat of each pair only) ───────────────────────────
+    if is_first_of_pair:
+        _add(segments, _misc("Allahu_akbar_short"))   # opening takbeer
+        _add(segments, _silence("Silence_15"))         # niyyah / opening pause
 
-    # ── 2. Al-Fatiha ─────────────────────────────────────────────────────
+    # ── Al-Fatiha ─────────────────────────────────────────────────────────
     for a in range(1, 8):
-        p = get_audio_path(reciter, AyahKey(surah=1, ayah=a))
-        _add(segments, p)
+        _add(segments, get_audio_path(reciter, AyahKey(surah=1, ayah=a)))
 
-    # ── 3. Surah portion (assigned ayahs from juz) ───────────────────────
+    # ── Juz portion ───────────────────────────────────────────────────────
     for ayah in ayahs:
-        p = get_audio_path(reciter, ayah)
-        _add(segments, p)
+        _add(segments, get_audio_path(reciter, ayah))
 
-    # ── 4. Ruku: takbeer + dhikr ─────────────────────────────────────────
-    _add(segments, _silence("takbeer_2s"))         # "Allahu Akbar" → bow
-    _add(segments, _silence("ruku_dhikr_10s"))     # "Subhana Rabbiyal Adheem" x3
+    # ── Ruku ──────────────────────────────────────────────────────────────
+    _add(segments, _misc("Allahu_akbar_short"))   # → bow
+    _add(segments, _silence("Silence_15"))         # ruku dhikr
 
-    # ── 5. Qawmah: rise + tahmid ─────────────────────────────────────────
-    _add(segments, _silence("qawmah_3s"))          # "Sami Allahu liman hamida"
-    _add(segments, _silence("tahmid_3s"))          # "Rabbana wa lakal hamd"
+    # ── Qawmah (rise from ruku) ───────────────────────────────────────────
+    _add(segments, _misc("Sami_Allahu_liman_hamida"))
 
-    # ── 6. First sujood ──────────────────────────────────────────────────
-    _add(segments, _silence("takbeer_2s"))         # "Allahu Akbar" → prostrate
-    _add(segments, _silence("sujood_dhikr_8s"))    # "Subhana Rabbiyal A'la" x3
+    # ── Sujood 1 ──────────────────────────────────────────────────────────
+    _add(segments, _misc("Allahu_akbar_short"))   # → prostrate
+    _add(segments, _silence("Silence_15"))         # sujood dhikr
 
-    # ── 7. Jilsah (sitting between sujoods) ──────────────────────────────
-    _add(segments, _silence("takbeer_2s"))         # "Allahu Akbar" → sit
-    _add(segments, _silence("jilsah_3s"))          # brief seated pause
+    # ── Jilsah (sitting between sujoods) ──────────────────────────────────
+    _add(segments, _misc("Allahu_akbar_short"))   # → sit
+    _add(segments, _silence("Silence_10"))         # jilsah pause
 
-    # ── 8. Second sujood ─────────────────────────────────────────────────
-    _add(segments, _silence("takbeer_2s"))         # "Allahu Akbar" → prostrate
-    _add(segments, _silence("sujood_dhikr_8s"))    # "Subhana Rabbiyal A'la" x3
+    # ── Sujood 2 ──────────────────────────────────────────────────────────
+    _add(segments, _misc("Allahu_akbar_short"))   # → prostrate
 
-    # ── 9. Post-sujood ───────────────────────────────────────────────────
-    if is_last:
-        # Final rakat: stay seated → tashahhud + tasleem
-        _add(segments, _silence("takbeer_2s"))           # "Allahu Akbar" → sit
-        _add(segments, _silence("tashahhud_final_45s"))  # tashahhud + salaam
-    elif is_even:
-        # Even rakat (2nd, 4th, …): mid-prayer tashahhud, then rise again
-        _add(segments, _silence("takbeer_2s"))     # "Allahu Akbar" → sit
-        _add(segments, _silence("tashahhud_30s"))  # mid-prayer tashahhud
-        _add(segments, _silence("inter_set_30s"))  # rest between sets
-        _add(segments, _silence("takbeer_2s"))     # "Allahu Akbar" → stand
+    if is_first_of_pair:
+        # Short dhikr, then long takbeer to rise and stand for rakat 2
+        _add(segments, _silence("Silence_15"))
+        _add(segments, _misc("Allahu_Akbar_long"))    # → stand for next rakat
     else:
-        # Odd non-last rakat: rise straight into the next rakat
-        _add(segments, _silence("takbeer_2s"))     # "Allahu Akbar" → stand
+        # Long silence covers sujood dhikr + rise + tashahhud, then tasleem × 2
+        _add(segments, _silence("Silence_45"))
+        _add(segments, _misc("Salam"))                # Assalamu Alaikum (1)
+        _add(segments, _misc("Salam"))                # Assalamu Alaikum (2)
 
     return segments
 
@@ -143,15 +147,25 @@ def build_concat_file(
 ) -> Path:
     """
     Build a single FFmpeg concat file for a room.
-    Returns path to the concat .txt file.
+    Returns the path to the concat .txt file.
     """
     ayahs = get_juz_ayahs(juz_number, half=juz_half)
     rakat_ayahs = distribute_ayahs_to_rakats(ayahs, rakats)
 
     all_segments: list[Path] = []
+
     for i, rakat_chunk in enumerate(rakat_ayahs):
-        segments = build_rakat_segments(i, rakats, rakat_chunk, reciter)
-        all_segments.extend(segments)
+        all_segments.extend(build_rakat_segments(i, rakat_chunk, reciter))
+
+        rakat_number = i + 1  # 1-based
+
+        if rakat_number == rakats:
+            # ── Very end of the prayer ──────────────────────────────────
+            _add(all_segments, _silence("Silence_15"))
+            _add(all_segments, _misc("Dua"))
+        elif rakat_number % 4 == 0:
+            # ── Break after every 4 rakats (not the last set) ──────────
+            _add(all_segments, _silence("Silence_45"))
 
     concat_path = Path(settings.HLS_OUTPUT_DIR) / room_slot_id / "concat.txt"
     _write_concat(all_segments, concat_path)
