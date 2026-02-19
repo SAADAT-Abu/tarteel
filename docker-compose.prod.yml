@@ -48,7 +48,7 @@ services:
     volumes:
       - ./audio:/app/audio
       - ./hls:/app/hls
-      - ./data:/app/data
+      - ./data:/data
     ports:
       - "127.0.0.1:8000:8000"               # bind to loopback only — nginx proxies
     depends_on:
