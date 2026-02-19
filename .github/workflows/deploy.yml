@@ -21,6 +21,7 @@ jobs:
           chmod 600 /tmp/deploy_key
 
           # Add server to known hosts
+          mkdir -p ~/.ssh
           ssh-keyscan -H "$SERVER_IP" >> ~/.ssh/known_hosts 2>/dev/null
 
           ssh -i /tmp/deploy_key deploy@"$SERVER_IP" << 'ENDSSH'
