@@ -285,9 +285,11 @@ async def send_welcome_email(user, isha_times: dict) -> bool:
                     s.login(settings.BREVO_SMTP_USER, settings.BREVO_SMTP_KEY)
                     s.sendmail(settings.BREVO_SMTP_USER, [user.email], msg.as_string())
             await asyncio.to_thread(_send)
+            logger.info(f"Welcome email sent via Brevo to {user.email}")
             return True
         except Exception as e:
             logger.error(f"Welcome email Brevo failed for {user.email}: {e}")
             return False
 
+    logger.warning(f"Welcome email not sent — no provider configured for {user.email}")
     return False
