@@ -26,7 +26,13 @@ export default function ProfilePage() {
   const handleSave = async () => {
     setLoading(true);
     try {
-      const res = await usersApi.updateMe(form);
+      const phone = (form.phone ?? "").trim() || null;
+      const payload = {
+        ...form,
+        phone,
+        notify_whatsapp: phone ? form.notify_whatsapp : false,
+      };
+      const res = await usersApi.updateMe(payload);
       setUser(res.data);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);

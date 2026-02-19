@@ -50,7 +50,14 @@ export default function RegisterPage() {
     setLoading(true);
     setError("");
     try {
-      const res = await authApi.register(form as unknown as Record<string, unknown>);
+      const phone = form.phone.trim() || null;
+      const payload = {
+        ...form,
+        phone,
+        // disable WhatsApp notifications if no phone number provided
+        notify_whatsapp: phone ? form.notify_whatsapp : false,
+      };
+      const res = await authApi.register(payload as unknown as Record<string, unknown>);
       setUser(res.data.user);
       router.push("/dashboard");
     } catch (e: unknown) {
