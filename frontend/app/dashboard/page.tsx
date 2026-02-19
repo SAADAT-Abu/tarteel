@@ -208,14 +208,14 @@ export default function DashboardPage() {
                 </div>
 
                 {/* Registered user counts per room type */}
-                {Object.keys(tonight.registered_users).length > 0 && (
+                {Object.keys(tonight.registered_users ?? {}).length > 0 && (
                   <div className="border-t border-white/5 pt-5">
                     <p className="text-xs text-gray-600 uppercase tracking-wider mb-3 text-center">
                       Praying with you tonight
                     </p>
                     <div className="grid grid-cols-2 gap-2">
                       {Object.entries(ROOM_CONFIG).map(([key, cfg]) => {
-                        const count = tonight.registered_users[key] ?? 0;
+                        const count = tonight.registered_users?.[key] ?? 0;
                         if (count === 0) return null;
                         return (
                           <div

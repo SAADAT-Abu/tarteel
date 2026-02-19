@@ -48,7 +48,7 @@ export interface TonightRooms {
   isha_utc: string;
   isha_bucket_utc: string;
   rooms: RoomSlot[];
-  registered_users: Record<string, number>; // e.g. {"8_1.0": 12, "8_0.5": 5}
+  registered_users?: Record<string, number>; // e.g. {"8_1.0": 12, "8_0.5": 5}
 }
 
 // Auth

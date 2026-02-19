@@ -15,7 +15,12 @@ interface AdminRoom {
   id: string; status: string; ramadan_night: number; isha_bucket_utc: string;
   rakats: number; juz_per_night: number; juz_number: number; juz_half: number | null;
   reciter: string; participant_count: number; playlist_built: boolean;
-  started_at: string | null; ended_at: string | null;
+  stream_path: string | null; started_at: string | null; ended_at: string | null;
+  is_test_room: boolean;
+}
+interface TestRoomResult {
+  id: string; status: string; rakats: number; juz_number: number;
+  juz_per_night: number; stream_url: string | null; room_url: string;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -34,15 +39,6 @@ const STATUS_COLOR: Record<string, string> = {
   completed: "text-gray-600 bg-gray-900",
 };
 
-const ROOM_ICON: Record<string, string> = {
-  "8_1":   "🌙", "8_0.5":  "🌛",
-  "20_1":  "⭐", "20_0.5": "✨",
-};
-
-function roomIcon(r: AdminRoom) {
-  return ROOM_ICON[`${r.rakats}_${r.juz_per_night}`] ?? "🕌";
-}
-
 function shortId(id: string) { return id.slice(0, 8); }
 
 function fmtTime(iso: string | null) {
@@ -60,8 +56,14 @@ export default function AdminPage() {
   const [rooms,    setRooms]    = useState<AdminRoom[]>([]);
   const [users,    setUsers]    = useState<AdminUser[]>([]);
   const [busy,     setBusy]     = useState<Record<string, boolean>>({});
-  const [toast,    setToast]    = useState("");
+  const [toast,    setToast]    = useState<{ msg: string; ok: boolean }>({ msg: "", ok: true });
   const [search,   setSearch]   = useState("");
+
+  // Test room form state
+  const [testRakats,   setTestRakats]   = useState(8);
+  const [testJuz,      setTestJuz]      = useState(1);
+  const [testJpn,      setTestJpn]      = useState(1.0);
+  const [testResult,   setTestResult]   = useState<TestRoomResult | null>(null);
 
   // Restore key from sessionStorage on mount
   useEffect(() => {
@@ -69,9 +71,9 @@ export default function AdminPage() {
     if (stored) { setKey(stored); setAuthed(true); }
   }, []);
 
-  const showToast = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(""), 3000);
+  const showToast = (msg: string, ok = true) => {
+    setToast({ msg, ok });
+    setTimeout(() => setToast({ msg: "", ok: true }), 4000);
   };
 
   const load = useCallback(async (k: string) => {
@@ -90,7 +92,7 @@ export default function AdminPage() {
   const handleLogin = async () => {
     const ok = await load(key);
     if (ok) { sessionStorage.setItem("admin_key", key); setAuthed(true); }
-    else showToast("Wrong admin key");
+    else showToast("Wrong admin key", false);
   };
 
   const handleLogout = () => {
@@ -108,8 +110,13 @@ export default function AdminPage() {
     try {
       const r = await adminFetch(`/admin/rooms/${roomId}/${action}`, key, { method: "POST" });
       const data = await r.json();
-      if (r.ok) { showToast(`✓ ${label} — ${shortId(roomId)}`); await refresh(); }
-      else showToast(`✗ ${data.detail || "Error"}`);
+      if (r.ok) {
+        const extra = data.status ? ` (${data.status})` : "";
+        showToast(`✓ ${label}${extra} — ${shortId(roomId)}`);
+        await refresh();
+      } else {
+        showToast(`✗ ${data.detail || "Error"}`, false);
+      }
     } finally {
       setBusy(b => ({ ...b, [bkey]: false }));
     }
@@ -120,9 +127,50 @@ export default function AdminPage() {
     try {
       const r = await adminFetch("/admin/trigger/daily-room-creation", key, { method: "POST" });
       if (r.ok) { showToast("✓ Room creation triggered"); await refresh(); }
-      else showToast("✗ Trigger failed");
+      else showToast("✗ Trigger failed", false);
     } finally {
       setBusy(b => ({ ...b, trigger: false }));
+    }
+  };
+
+  const createTestRoom = async () => {
+    setBusy(b => ({ ...b, testRoom: true }));
+    setTestResult(null);
+    try {
+      const params = new URLSearchParams({
+        rakats: String(testRakats),
+        juz_number: String(testJuz),
+        juz_per_night: String(testJpn),
+      });
+      const r = await adminFetch(`/admin/test-room?${params}`, key, { method: "POST" });
+      const data = await r.json();
+      if (r.ok) {
+        setTestResult(data);
+        showToast(`✓ Test room created — ${data.status}`);
+        await refresh();
+      } else {
+        showToast(`✗ ${data.detail || "Test room failed"}`, false);
+      }
+    } finally {
+      setBusy(b => ({ ...b, testRoom: false }));
+    }
+  };
+
+  const cleanupTestRooms = async () => {
+    if (!confirm("Delete all admin test rooms?")) return;
+    setBusy(b => ({ ...b, cleanupTest: true }));
+    try {
+      const r = await adminFetch("/admin/test-rooms", key, { method: "DELETE" });
+      const data = await r.json();
+      if (r.ok) {
+        setTestResult(null);
+        showToast(`✓ Deleted ${data.deleted} test room(s)`);
+        await refresh();
+      } else {
+        showToast("✗ Cleanup failed", false);
+      }
+    } finally {
+      setBusy(b => ({ ...b, cleanupTest: false }));
     }
   };
 
@@ -131,7 +179,7 @@ export default function AdminPage() {
     try {
       const r = await adminFetch(`/admin/users/${userId}/active`, key, { method: "PATCH" });
       if (r.ok) { await refresh(); }
-      else showToast("✗ Could not update user");
+      else showToast("✗ Could not update user", false);
     } finally {
       setBusy(b => ({ ...b, [userId]: false }));
     }
@@ -162,7 +210,7 @@ export default function AdminPage() {
         >
           Enter
         </button>
-        {toast && <p className="text-red-400 text-sm text-center mt-3">{toast}</p>}
+        {toast.msg && <p className="text-red-400 text-sm text-center mt-3">{toast.msg}</p>}
       </div>
     </div>
   );
@@ -174,14 +222,19 @@ export default function AdminPage() {
     (u.city ?? "").toLowerCase().includes(search.toLowerCase())
   );
 
+  const realRooms = rooms.filter(r => !r.is_test_room);
+  const testRooms = rooms.filter(r => r.is_test_room);
+
   return (
     <div className="min-h-screen bg-mosque-darkest text-white">
       <div className="fixed inset-0 geo-pattern opacity-10 pointer-events-none" />
 
       {/* Toast */}
-      {toast && (
-        <div className="fixed top-4 right-4 z-50 px-4 py-2 rounded-xl bg-mosque-navy border border-mosque-gold/30 text-sm text-white shadow-xl">
-          {toast}
+      {toast.msg && (
+        <div className={`fixed top-4 right-4 z-50 px-4 py-2 rounded-xl border text-sm text-white shadow-xl ${
+          toast.ok ? "bg-mosque-navy border-mosque-gold/30" : "bg-red-950 border-red-700/50"
+        }`}>
+          {toast.msg}
         </div>
       )}
 
@@ -235,33 +288,176 @@ export default function AdminPage() {
 
         {/* ── Rooms tab ───────────────────────────────────────────────────── */}
         {tab === "rooms" && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-white">Prayer Rooms</h2>
-              <button
-                onClick={triggerRoomCreation}
-                disabled={busy.trigger}
-                className="px-4 py-2 text-xs font-semibold rounded-xl bg-mosque-gold text-mosque-dark hover:bg-mosque-gold-light transition-all disabled:opacity-40"
-              >
-                {busy.trigger ? "Running…" : "▶ Trigger Room Creation"}
-              </button>
+          <div className="space-y-6">
+
+            {/* Admin Test Room panel */}
+            <div className="glass-card p-5 border-mosque-gold/20">
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-lg">🧪</span>
+                <h2 className="font-semibold text-mosque-gold">Admin Test Room</h2>
+                <span className="text-xs text-gray-500 ml-1">— start anytime, not tied to Isha schedule</span>
+              </div>
+
+              <div className="flex flex-wrap items-end gap-3 mb-4">
+                {/* Rakats */}
+                <div className="space-y-1">
+                  <label className="text-xs text-gray-500 uppercase tracking-wider">Rakats</label>
+                  <select
+                    value={testRakats}
+                    onChange={e => setTestRakats(Number(e.target.value))}
+                    className="bg-mosque-darkest border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-mosque-gold/50 cursor-pointer"
+                  >
+                    <option value={8}>8 rakats (Taraweeh)</option>
+                    <option value={20}>20 rakats (Full Taraweeh)</option>
+                  </select>
+                </div>
+
+                {/* Juz number */}
+                <div className="space-y-1">
+                  <label className="text-xs text-gray-500 uppercase tracking-wider">Juz</label>
+                  <select
+                    value={testJuz}
+                    onChange={e => setTestJuz(Number(e.target.value))}
+                    className="bg-mosque-darkest border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-mosque-gold/50 cursor-pointer"
+                  >
+                    {Array.from({ length: 30 }, (_, i) => i + 1).map(n => (
+                      <option key={n} value={n}>Juz {n}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Juz per night */}
+                <div className="space-y-1">
+                  <label className="text-xs text-gray-500 uppercase tracking-wider">Amount</label>
+                  <select
+                    value={testJpn}
+                    onChange={e => setTestJpn(Number(e.target.value))}
+                    className="bg-mosque-darkest border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-mosque-gold/50 cursor-pointer"
+                  >
+                    <option value={1.0}>Full Juz</option>
+                    <option value={0.5}>Half Juz</option>
+                  </select>
+                </div>
+
+                {/* Buttons */}
+                <button
+                  onClick={createTestRoom}
+                  disabled={!!busy.testRoom}
+                  className="px-5 py-2 bg-mosque-gold text-mosque-dark font-bold rounded-xl hover:bg-mosque-gold-light transition-all disabled:opacity-40 text-sm whitespace-nowrap"
+                >
+                  {busy.testRoom ? "Starting…" : "▶ Start Test Room"}
+                </button>
+
+                {testRooms.length > 0 && (
+                  <button
+                    onClick={cleanupTestRooms}
+                    disabled={!!busy.cleanupTest}
+                    className="px-4 py-2 rounded-xl border border-red-800 text-red-400 hover:bg-red-900/20 text-sm disabled:opacity-40 whitespace-nowrap transition-colors"
+                  >
+                    {busy.cleanupTest ? "Deleting…" : `🗑 Cleanup ${testRooms.length} Test Room${testRooms.length !== 1 ? "s" : ""}`}
+                  </button>
+                )}
+              </div>
+
+              {/* Test room result */}
+              {testResult && (
+                <div className={`rounded-xl px-4 py-3 text-sm ${
+                  testResult.status === "live"
+                    ? "bg-green-900/20 border border-green-700/30"
+                    : "bg-yellow-900/20 border border-yellow-700/30"
+                }`}>
+                  {testResult.status === "live" ? (
+                    <>
+                      <span className="text-green-400 font-semibold">✓ Room is LIVE</span>
+                      <span className="text-gray-400 ml-2">
+                        {testResult.rakats}R · Juz {testResult.juz_number} ({testResult.juz_per_night === 1 ? "Full" : "Half"})
+                      </span>
+                      <div className="mt-2 flex flex-wrap gap-3">
+                        <a
+                          href={testResult.room_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-mosque-gold hover:underline font-mono text-xs"
+                        >
+                          ↗ {testResult.room_url}
+                        </a>
+                        {testResult.stream_url && (
+                          <span className="text-gray-500 font-mono text-xs truncate max-w-xs">{testResult.stream_url}</span>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <span className="text-yellow-400">
+                      Room created but status is <strong>{testResult.status}</strong> — check backend logs for playlist build errors
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Live test rooms quick list */}
+              {testRooms.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  <p className="text-xs text-gray-500 uppercase tracking-wider">Active test rooms</p>
+                  {testRooms.map(room => {
+                    const bk = (a: string) => !!busy[`${room.id}_${a}`];
+                    return (
+                      <div key={room.id} className="flex flex-wrap items-center gap-3 bg-white/[0.02] rounded-xl px-3 py-2 border border-white/5">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLOR[room.status] ?? "text-gray-400"}`}>
+                          {room.status}
+                        </span>
+                        <span className="text-sm text-gray-300">
+                          {room.rakats}R · Juz {room.juz_number}{room.juz_half ? ` (${room.juz_half === 1 ? "1st" : "2nd"} half)` : ""}
+                        </span>
+                        <span className="text-xs text-gray-600 font-mono">{shortId(room.id)}</span>
+                        {room.started_at && <span className="text-xs text-gray-500">started {fmtTime(room.started_at)}</span>}
+                        <div className="flex gap-2 ml-auto">
+                          <ActionBtn
+                            label="Force Start"
+                            busy={bk("force-start")}
+                            onClick={() => roomAction(room.id, "force-start", "Room started")}
+                            disabled={room.status === "live"}
+                            highlight
+                          />
+                          <ActionBtn
+                            label="Cleanup"
+                            busy={bk("cleanup")}
+                            onClick={() => roomAction(room.id, "cleanup", "Room stopped")}
+                            danger
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
-            {rooms.length === 0 ? (
-              <div className="glass-card p-10 text-center text-gray-500">
-                No rooms yet — click "Trigger Room Creation" to create tonight's rooms.
+            {/* Real rooms section */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="font-semibold text-white">Prayer Rooms {realRooms.length > 0 && <span className="text-gray-500 font-normal text-sm">({realRooms.length})</span>}</h2>
+                <button
+                  onClick={triggerRoomCreation}
+                  disabled={busy.trigger}
+                  className="px-4 py-2 text-xs font-semibold rounded-xl bg-mosque-gold text-mosque-dark hover:bg-mosque-gold-light transition-all disabled:opacity-40"
+                >
+                  {busy.trigger ? "Running…" : "▶ Trigger Room Creation"}
+                </button>
               </div>
-            ) : (
-              <div className="space-y-3">
-                {rooms.map(room => {
-                  const key_busy = (action: string) => busy[`${room.id}_${action}`];
-                  return (
-                    <div key={room.id} className="glass-card p-4">
-                      <div className="flex flex-wrap items-start gap-3">
-                        {/* Room info */}
-                        <div className="flex items-center gap-3 flex-1 min-w-0">
-                          <span className="text-2xl">{roomIcon(room)}</span>
-                          <div className="min-w-0">
+
+              {realRooms.length === 0 ? (
+                <div className="glass-card p-10 text-center text-gray-500">
+                  No scheduled rooms yet — click "Trigger Room Creation" to create tonight's rooms.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {realRooms.map(room => {
+                    const bk = (a: string) => !!busy[`${room.id}_${a}`];
+                    return (
+                      <div key={room.id} className="glass-card p-4">
+                        <div className="flex flex-wrap items-start gap-3">
+                          {/* Room info */}
+                          <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-semibold text-white">
                                 Night {room.ramadan_night} · {room.rakats}R · Juz {room.juz_number}{room.juz_half ? ` (${room.juz_half === 1 ? "1st" : "2nd"} half)` : ""}
@@ -269,9 +465,7 @@ export default function AdminPage() {
                               <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLOR[room.status] ?? "text-gray-400"}`}>
                                 {room.status}
                               </span>
-                              {room.playlist_built && (
-                                <span className="text-xs text-blue-400">playlist ✓</span>
-                              )}
+                              {room.playlist_built && <span className="text-xs text-blue-400">playlist ✓</span>}
                             </div>
                             <div className="text-xs text-gray-500 mt-0.5 font-mono">
                               {shortId(room.id)} · Isha {fmtTime(room.isha_bucket_utc)} UTC
@@ -279,55 +473,65 @@ export default function AdminPage() {
                               {room.started_at && ` · started ${fmtTime(room.started_at)}`}
                             </div>
                           </div>
-                        </div>
 
-                        {/* Action buttons — step-by-step test workflow */}
-                        <div className="flex flex-wrap gap-2">
-                          <ActionBtn
-                            label="Build Playlist"
-                            busy={!!key_busy("build-playlist")}
-                            onClick={() => roomAction(room.id, "build-playlist", "Playlist built")}
-                            disabled={room.status === "completed"}
-                          />
-                          <ActionBtn
-                            label="Start Stream"
-                            busy={!!key_busy("start-stream")}
-                            onClick={() => roomAction(room.id, "start-stream", "Stream started")}
-                            disabled={room.status === "completed" || room.status === "live"}
-                            highlight
-                          />
-                          <ActionBtn
-                            label="Notify Users"
-                            busy={!!key_busy("send-notifications")}
-                            onClick={() => roomAction(room.id, "send-notifications", "Notifications sent")}
-                            disabled={room.status === "completed"}
-                          />
-                          <ActionBtn
-                            label="Cleanup"
-                            busy={!!key_busy("cleanup")}
-                            onClick={() => roomAction(room.id, "cleanup", "Room cleaned up")}
-                            disabled={room.status === "completed"}
-                            danger
-                          />
+                          {/* Action buttons */}
+                          <div className="flex flex-wrap gap-2">
+                            <ActionBtn
+                              label="Force Start"
+                              busy={bk("force-start")}
+                              onClick={() => roomAction(room.id, "force-start", "Room started")}
+                              disabled={room.status === "completed" || room.status === "live"}
+                              highlight
+                            />
+                            <ActionBtn
+                              label="Build Playlist"
+                              busy={bk("build-playlist")}
+                              onClick={() => roomAction(room.id, "build-playlist", "Playlist built")}
+                              disabled={room.status === "completed" || room.status === "live"}
+                            />
+                            <ActionBtn
+                              label="Notify Users"
+                              busy={bk("send-notifications")}
+                              onClick={() => roomAction(room.id, "send-notifications", "Notifications queued")}
+                              disabled={room.status === "completed"}
+                            />
+                            <ActionBtn
+                              label="Cleanup"
+                              busy={bk("cleanup")}
+                              onClick={() => roomAction(room.id, "cleanup", "Room cleaned up")}
+                              disabled={room.status === "completed"}
+                              danger
+                            />
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
-            {/* Test workflow guide */}
+            {/* Testing workflow guide */}
             <div className="glass-card p-5 border-mosque-gold/10">
-              <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-3">Testing a prayer room</p>
-              <ol className="space-y-1.5 text-sm text-gray-400">
-                <li><span className="text-mosque-gold font-mono">1.</span> Click <strong className="text-white">Trigger Room Creation</strong> — creates tonight's 4 room slots</li>
-                <li><span className="text-mosque-gold font-mono">2.</span> Click <strong className="text-white">Build Playlist</strong> on a room — compiles the audio sequence (FFmpeg)</li>
-                <li><span className="text-mosque-gold font-mono">3.</span> Click <strong className="text-white">Start Stream</strong> — starts the HLS stream, room goes LIVE</li>
-                <li><span className="text-mosque-gold font-mono">4.</span> Open <strong className="text-white">tarteel.live/dashboard</strong> in another tab and join the room to verify audio</li>
-                <li><span className="text-mosque-gold font-mono">5.</span> Click <strong className="text-white">Notify Users</strong> to test WhatsApp/email reminders</li>
-                <li><span className="text-mosque-gold font-mono">6.</span> Click <strong className="text-white">Cleanup</strong> when done — marks room completed and stops stream</li>
-              </ol>
+              <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-3">Quick reference</p>
+              <div className="grid sm:grid-cols-2 gap-4 text-sm text-gray-400">
+                <div>
+                  <p className="text-white text-xs font-semibold uppercase tracking-wider mb-2">Testing audio (anytime)</p>
+                  <ol className="space-y-1">
+                    <li><span className="text-mosque-gold font-mono">1.</span> Choose rakats, juz and click <strong className="text-white">Start Test Room</strong></li>
+                    <li><span className="text-mosque-gold font-mono">2.</span> Open the room URL that appears to verify audio</li>
+                    <li><span className="text-mosque-gold font-mono">3.</span> Click <strong className="text-white">Cleanup Test Rooms</strong> when done</li>
+                  </ol>
+                </div>
+                <div>
+                  <p className="text-white text-xs font-semibold uppercase tracking-wider mb-2">Fixing a stuck room</p>
+                  <ol className="space-y-1">
+                    <li><span className="text-mosque-gold font-mono">1.</span> Click <strong className="text-white">Force Start</strong> on any stuck/scheduled room</li>
+                    <li><span className="text-mosque-gold font-mono">2.</span> This resets → builds playlist → starts stream</li>
+                    <li><span className="text-mosque-gold font-mono">3.</span> If it fails, check backend logs for missing audio files</li>
+                  </ol>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -376,7 +580,7 @@ export default function AdminPage() {
                         {u.rakats}R · {u.juz_per_night === 1 ? "Full" : "Half"} Juz
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex gap-2 text-xs">
+                        <div className="flex gap-2 text-xs flex-wrap">
                           {u.notify_email    && <span className="px-1.5 py-0.5 rounded bg-blue-900/40 text-blue-400">Email</span>}
                           {u.notify_whatsapp && <span className="px-1.5 py-0.5 rounded bg-green-900/40 text-green-400">WA</span>}
                           {u.phone && <span className="text-gray-600 font-mono">{u.phone}</span>}

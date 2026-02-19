@@ -43,23 +43,16 @@ def _get_juz_for_night(night: int, juz_per_night: float) -> tuple[int, int | Non
     """Returns (juz_number, juz_half). juz_half is None for full-juz rooms."""
     if juz_per_night == 1.0:
         return night, None
-    # 0.5 juz per night: night 1 → juz 1 first half, night 2 → juz 1 second half, etc.
     juz_number = (night + 1) // 2
     juz_half = 1 if night % 2 == 1 else 2
     return juz_number, juz_half
 
 
 async def daily_room_creation() -> None:
-    """Create room_slot rows for all upcoming Isha buckets in the next 30 hours.
-
-    Runs at 02:00 UTC daily. The 30-hour window ensures that:
-    - The scheduled 2am run covers tonight's Isha (typically 17-22h away).
-    - A manual mid-day trigger also catches tonight's Isha (still in the future).
-    """
+    """Create room_slot rows for all upcoming Isha buckets in the next 30 hours."""
     now = datetime.now(timezone.utc)
     window_end = now + timedelta(hours=30)
     async with AsyncSessionLocal() as db:
-        # Find all unique Isha buckets in the next 30 hours
         result = await db.execute(
             select(UserIshaSchedule.isha_bucket_utc, UserIshaSchedule.ramadan_night)
             .where(
@@ -101,8 +94,6 @@ async def daily_room_creation() -> None:
                 )
                 db.add(slot)
                 await db.flush()
-
-                # Schedule downstream jobs
                 _schedule_room_jobs(slot)
 
         await db.commit()
@@ -112,17 +103,14 @@ async def daily_room_creation() -> None:
 def _schedule_room_jobs(slot: RoomSlot) -> None:
     """Schedule playlist build, notification, stream start, and cleanup jobs for a slot."""
     slot_id = str(slot.id)
-
     build_time   = slot.isha_bucket_utc - timedelta(minutes=90)
     cleanup_time = slot.isha_bucket_utc + timedelta(hours=3)
-
     now = datetime.now(timezone.utc)
 
     if build_time > now:
-        scheduler.add_job(build_playlist_job, "date", run_date=build_time, args=[slot_id], id=f"build_{slot_id}", replace_existing=True)
+        scheduler.add_job(build_playlist_job, "date", run_date=build_time,
+                          args=[slot_id], id=f"build_{slot_id}", replace_existing=True)
 
-    # Schedule one notification wave per supported lead-time.
-    # Each job only notifies users whose notify_minutes_before matches.
     for mins in (10, 15, 20, 30):
         notify_time = slot.isha_bucket_utc - timedelta(minutes=mins)
         if notify_time > now:
@@ -135,16 +123,64 @@ def _schedule_room_jobs(slot: RoomSlot) -> None:
             )
 
     if slot.isha_bucket_utc > now:
-        scheduler.add_job(start_stream_job, "date", run_date=slot.isha_bucket_utc, args=[slot_id], id=f"start_{slot_id}", replace_existing=True)
+        scheduler.add_job(start_stream_job, "date", run_date=slot.isha_bucket_utc,
+                          args=[slot_id], id=f"start_{slot_id}", replace_existing=True)
 
-    scheduler.add_job(room_cleanup_job, "date", run_date=cleanup_time, args=[slot_id], id=f"cleanup_{slot_id}", replace_existing=True)
+    scheduler.add_job(room_cleanup_job, "date", run_date=cleanup_time,
+                      args=[slot_id], id=f"cleanup_{slot_id}", replace_existing=True)
+
+
+async def reschedule_pending_rooms() -> None:
+    """On startup: reset interrupted builds, reschedule all pending rooms.
+
+    Fixes the problem where APScheduler loses all jobs on every container
+    restart (it uses an in-memory store by default).
+    """
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(RoomSlot).where(
+                RoomSlot.status.in_(["scheduled", "building"]),
+                RoomSlot.isha_bucket_utc > now - timedelta(hours=3),
+            )
+        )
+        slots = result.scalars().all()
+
+        for slot in slots:
+            if slot.status == "building":
+                # Reset rooms interrupted mid-build so they can be retried
+                slot.status = "scheduled"
+                slot.playlist_built = False
+                slot.stream_path = None
+                logger.info(f"Reset interrupted build for room {slot.id}")
+
+        await db.commit()
+
+        # Reschedule downstream jobs for every pending room
+        for slot in slots:
+            _schedule_room_jobs(slot)
+            # If build window already passed but playlist not yet built → build now
+            build_time = slot.isha_bucket_utc - timedelta(minutes=90)
+            if not slot.playlist_built and build_time <= now and slot.isha_bucket_utc > now:
+                scheduler.add_job(
+                    build_playlist_job, "date",
+                    run_date=now + timedelta(seconds=5),
+                    args=[str(slot.id)],
+                    id=f"build_urgent_{slot.id}",
+                    replace_existing=True,
+                )
+                logger.info(f"Urgent build scheduled for room {slot.id}")
+
+    logger.info(f"reschedule_pending_rooms: processed {len(slots)} room(s)")
 
 
 async def build_playlist_job(room_slot_id: str) -> None:
     try:
         async with AsyncSessionLocal() as db:
             slot = await db.get(RoomSlot, uuid.UUID(room_slot_id))
-            if not slot or slot.status != "scheduled":
+            # Allow retry from "building" (e.g. after a restart or admin re-trigger)
+            if not slot or slot.status not in ("scheduled", "building"):
+                logger.info(f"build_playlist_job skipped — status={slot.status if slot else 'not found'}")
                 return
             slot.status = "building"
             await db.commit()
@@ -164,8 +200,18 @@ async def build_playlist_job(room_slot_id: str) -> None:
                 s.stream_path = str(concat_path)
                 await db.commit()
         logger.info(f"Playlist built for {room_slot_id}")
+
     except Exception as e:
         logger.error(f"build_playlist_job failed for {room_slot_id}: {e}", exc_info=True)
+        # Reset to "scheduled" so admin or next startup can retry
+        try:
+            async with AsyncSessionLocal() as db:
+                slot = await db.get(RoomSlot, uuid.UUID(room_slot_id))
+                if slot and slot.status == "building":
+                    slot.status = "scheduled"
+                    await db.commit()
+        except Exception:
+            pass
 
 
 async def send_notifications_job(room_slot_id: str, minutes_before: int = 20) -> None:
@@ -175,7 +221,6 @@ async def send_notifications_job(room_slot_id: str, minutes_before: int = 20) ->
             if not slot:
                 return
 
-            # Only notify users whose preferred lead-time matches this wave
             result = await db.execute(
                 select(User)
                 .join(UserIshaSchedule, UserIshaSchedule.user_id == User.id)
@@ -190,7 +235,6 @@ async def send_notifications_job(room_slot_id: str, minutes_before: int = 20) ->
             )
             users = result.scalars().all()
 
-            # Deduplication: find users already successfully notified for this slot
             dedup_result = await db.execute(
                 select(NotificationLog.user_id, NotificationLog.channel)
                 .where(
@@ -225,8 +269,11 @@ async def start_stream_job(room_slot_id: str) -> None:
     try:
         async with AsyncSessionLocal() as db:
             slot = await db.get(RoomSlot, uuid.UUID(room_slot_id))
-            if not slot or not slot.stream_path:
-                logger.warning(f"Cannot start stream — no playlist for {room_slot_id}")
+            if not slot:
+                logger.warning(f"start_stream_job: room {room_slot_id} not found")
+                return
+            if not slot.stream_path:
+                logger.error(f"start_stream_job: no playlist for {room_slot_id} — run build first")
                 return
 
             proc = await start_stream(room_slot_id, slot.stream_path)
@@ -263,6 +310,13 @@ async def room_cleanup_job(room_slot_id: str) -> None:
 
 
 def start_scheduler() -> None:
-    scheduler.add_job(daily_room_creation, "cron", hour=2, minute=0, id="daily_room_creation", replace_existing=True)
+    scheduler.add_job(daily_room_creation, "cron", hour=2, minute=0,
+                      id="daily_room_creation", replace_existing=True)
+    # On every startup: reset interrupted builds and reschedule pending rooms
+    scheduler.add_job(
+        reschedule_pending_rooms, "date",
+        run_date=datetime.now(timezone.utc) + timedelta(seconds=5),
+        id="startup_reschedule", replace_existing=True,
+    )
     scheduler.start()
     logger.info("Scheduler started")
