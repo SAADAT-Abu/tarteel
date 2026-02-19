@@ -150,6 +150,12 @@ def build_concat_file(
     Returns the path to the concat .txt file.
     """
     ayahs = get_juz_ayahs(juz_number, half=juz_half)
+
+    # Al-Fatiha (Surah 1) is recited separately as a fixed step in every rakat.
+    # Strip it from the juz portion so it is never played twice,
+    # regardless of which juz is assigned (Juz 1 starts with Surah 1).
+    ayahs = [a for a in ayahs if a.surah != 1]
+
     rakat_ayahs = distribute_ayahs_to_rakats(ayahs, rakats)
 
     all_segments: list[Path] = []
