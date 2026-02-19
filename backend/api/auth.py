@@ -10,6 +10,7 @@ from config import get_settings
 from models import User, UserIshaSchedule
 from schemas.user import UserRegisterFull, UserLogin, TokenResponse, UserResponse
 from services.prayer_times import geocode_city, fetch_isha_times_for_ramadan
+from services.notifications import send_welcome_email
 
 COOKIE_NAME = "tarteel_token"
 COOKIE_MAX_AGE = 60 * 60 * 24 * 7  # 7 days in seconds
@@ -112,6 +113,9 @@ async def register(body: UserRegisterFull, response: Response, db: AsyncSession 
 
     await db.commit()
     await db.refresh(user)
+
+    # Send welcome email in the background — don't block the registration response
+    asyncio.create_task(send_welcome_email(user, isha_times))
 
     token = create_access_token(str(user.id))
     _set_auth_cookie(response, token)

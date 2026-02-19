@@ -1,8 +1,10 @@
 import asyncio
 import logging
 import smtplib
+from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from zoneinfo import ZoneInfo
 from config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -193,4 +195,99 @@ async def send_email_reminder(user, room_slot, minutes_before: int = 20) -> bool
             return False
 
     logger.warning("No email provider configured (set SENDGRID_API_KEY, GMAIL_USER, or BREVO_SMTP_USER)")
+    return False
+
+
+def _build_welcome_message(user, isha_times: dict) -> str:
+    """Build the plain-text welcome email body."""
+    name = user.name or "dear worshipper"
+    rakats = user.rakats
+    jpn = user.juz_per_night
+    duration = ROOM_DURATION.get((rakats, jpn), 60)
+    juz_label = "1 Juz" if jpn == 1.0 else "half a Juz"
+
+    # Find the next upcoming Isha from the schedule
+    now = datetime.now(timezone.utc)
+    upcoming = [(night, isha_utc) for night, (isha_utc, _) in isha_times.items() if isha_utc > now]
+    upcoming.sort(key=lambda x: x[1])
+
+    if upcoming:
+        night_num, isha_utc = upcoming[0]
+        try:
+            local_tz = ZoneInfo(user.timezone)
+            isha_local = isha_utc.astimezone(local_tz)
+            isha_str = isha_local.strftime("%I:%M %p %Z")
+        except Exception:
+            isha_str = isha_utc.strftime("%H:%M UTC")
+        tonight_line = f"Tonight (Night {night_num}): Isha at {isha_str}"
+    else:
+        tonight_line = "Check your dashboard for tonight's Isha time."
+
+    return (
+        f"Assalamu Alaikum {name},\n\n"
+        f"Welcome to Tarteel — your virtual Taraweeh space for Ramadan.\n\n"
+        f"Your account is ready. Here's what we've set up for you:\n\n"
+        f"  City       : {user.city}, {user.country}\n"
+        f"  Prayer     : {rakats} Rakats · {juz_label} per night (~{duration} min)\n"
+        f"  Reminder   : {user.notify_minutes_before} minutes before Isha\n\n"
+        f"{tonight_line}\n\n"
+        f"A few minutes before each Isha, you'll receive a reminder email with a\n"
+        f"direct link to join your room. You can also find your room anytime at:\n\n"
+        f"  {settings.FRONTEND_URL}/dashboard\n\n"
+        f"May Allah accept your prayers and make this Ramadan blessed.\n\n"
+        f"— Tarteel"
+    )
+
+
+async def send_welcome_email(user, isha_times: dict) -> bool:
+    """Send a registration welcome email. Called as a background task after register."""
+    if not user.notify_email or not user.email:
+        return False
+
+    subject = "Welcome to Tarteel — your Taraweeh room is ready"
+    plain = _build_welcome_message(user, isha_times)
+
+    # Re-use the same provider chain as reminder emails
+    if settings.SENDGRID_API_KEY:
+        try:
+            import sendgrid
+            from sendgrid.helpers.mail import Mail
+            sg = sendgrid.SendGridAPIClient(api_key=settings.SENDGRID_API_KEY)
+            mail = Mail(from_email=settings.SENDGRID_FROM_EMAIL, to_emails=user.email,
+                        subject=subject, plain_text_content=plain)
+            await asyncio.to_thread(sg.send, mail)
+            return True
+        except Exception as e:
+            logger.error(f"Welcome email SendGrid failed for {user.email}: {e}")
+            return False
+
+    if settings.GMAIL_USER and settings.GMAIL_APP_PASSWORD:
+        try:
+            await asyncio.to_thread(
+                _send_via_gmail_smtp,
+                settings.GMAIL_USER, settings.GMAIL_APP_PASSWORD,
+                user.email, subject, plain,
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Welcome email Gmail failed for {user.email}: {e}")
+            return False
+
+    if settings.BREVO_SMTP_USER and settings.BREVO_SMTP_KEY:
+        try:
+            def _send():
+                msg = MIMEText(plain, "plain")
+                msg["Subject"] = subject
+                msg["From"]    = f"Tarteel <{settings.BREVO_SMTP_USER}>"
+                msg["To"]      = user.email
+                with smtplib.SMTP("smtp-relay.brevo.com", 587, timeout=15) as s:
+                    s.ehlo(); s.starttls()
+                    s.login(settings.BREVO_SMTP_USER, settings.BREVO_SMTP_KEY)
+                    s.sendmail(settings.BREVO_SMTP_USER, [user.email], msg.as_string())
+            await asyncio.to_thread(_send)
+            return True
+        except Exception as e:
+            logger.error(f"Welcome email Brevo failed for {user.email}: {e}")
+            return False
+
     return False
