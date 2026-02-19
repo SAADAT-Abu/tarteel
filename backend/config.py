@@ -31,8 +31,9 @@ class Settings(BaseSettings):
     GMAIL_APP_PASSWORD: str = ""
 
     # Brevo SMTP
-    BREVO_SMTP_USER: str = ""
-    BREVO_SMTP_KEY: str = ""
+    BREVO_SMTP_USER: str = ""   # SMTP login credential (e.g. a2be22001@smtp-brevo.com)
+    BREVO_SMTP_KEY: str = ""    # SMTP key/password from Brevo dashboard
+    BREVO_FROM_EMAIL: str = ""  # Verified sender address (e.g. noreply@tarteel.live)
 
     # OpenCage (optional)
     OPENCAGE_API_KEY: str = ""

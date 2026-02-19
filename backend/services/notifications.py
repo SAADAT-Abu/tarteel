@@ -176,18 +176,18 @@ async def send_email_reminder(user, room_slot, minutes_before: int = 20) -> bool
             return False
 
     # ── Option 3: Brevo SMTP ─────────────────────────────────────────────
-    if settings.BREVO_SMTP_USER and settings.BREVO_SMTP_KEY:
+    if settings.BREVO_SMTP_USER and settings.BREVO_SMTP_KEY and settings.BREVO_FROM_EMAIL:
         try:
             plain = _build_message(user.name, room_slot, join_url, minutes_before)
             def _send():
                 msg = MIMEText(plain, "plain")
                 msg["Subject"] = subject
-                msg["From"]    = f"Tarteel <{settings.BREVO_SMTP_USER}>"
+                msg["From"]    = f"Tarteel <{settings.BREVO_FROM_EMAIL}>"
                 msg["To"]      = user.email
                 with smtplib.SMTP("smtp-relay.brevo.com", 587, timeout=15) as s:
                     s.ehlo(); s.starttls()
                     s.login(settings.BREVO_SMTP_USER, settings.BREVO_SMTP_KEY)
-                    s.sendmail(settings.BREVO_SMTP_USER, [user.email], msg.as_string())
+                    s.sendmail(settings.BREVO_FROM_EMAIL, [user.email], msg.as_string())
             await asyncio.to_thread(_send)
             return True
         except Exception as e:
@@ -273,17 +273,17 @@ async def send_welcome_email(user, isha_times: dict) -> bool:
             logger.error(f"Welcome email Gmail failed for {user.email}: {e}")
             return False
 
-    if settings.BREVO_SMTP_USER and settings.BREVO_SMTP_KEY:
+    if settings.BREVO_SMTP_USER and settings.BREVO_SMTP_KEY and settings.BREVO_FROM_EMAIL:
         try:
             def _send():
                 msg = MIMEText(plain, "plain")
                 msg["Subject"] = subject
-                msg["From"]    = f"Tarteel <{settings.BREVO_SMTP_USER}>"
+                msg["From"]    = f"Tarteel <{settings.BREVO_FROM_EMAIL}>"
                 msg["To"]      = user.email
                 with smtplib.SMTP("smtp-relay.brevo.com", 587, timeout=15) as s:
                     s.ehlo(); s.starttls()
                     s.login(settings.BREVO_SMTP_USER, settings.BREVO_SMTP_KEY)
-                    s.sendmail(settings.BREVO_SMTP_USER, [user.email], msg.as_string())
+                    s.sendmail(settings.BREVO_FROM_EMAIL, [user.email], msg.as_string())
             await asyncio.to_thread(_send)
             logger.info(f"Welcome email sent via Brevo to {user.email}")
             return True
