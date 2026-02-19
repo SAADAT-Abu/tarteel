@@ -50,15 +50,21 @@ def _get_juz_for_night(night: int, juz_per_night: float) -> tuple[int, int | Non
 
 
 async def daily_room_creation() -> None:
-    """Create room_slot rows for all Isha buckets tomorrow. Runs at 02:00 UTC."""
-    tomorrow = datetime.now(timezone.utc) + timedelta(days=1)
+    """Create room_slot rows for all upcoming Isha buckets in the next 30 hours.
+
+    Runs at 02:00 UTC daily. The 30-hour window ensures that:
+    - The scheduled 2am run covers tonight's Isha (typically 17-22h away).
+    - A manual mid-day trigger also catches tonight's Isha (still in the future).
+    """
+    now = datetime.now(timezone.utc)
+    window_end = now + timedelta(hours=30)
     async with AsyncSessionLocal() as db:
-        # Find all unique Isha buckets for tomorrow
+        # Find all unique Isha buckets in the next 30 hours
         result = await db.execute(
             select(UserIshaSchedule.isha_bucket_utc, UserIshaSchedule.ramadan_night)
             .where(
-                UserIshaSchedule.isha_bucket_utc >= tomorrow.replace(hour=0, minute=0, second=0),
-                UserIshaSchedule.isha_bucket_utc < tomorrow.replace(hour=23, minute=59, second=59),
+                UserIshaSchedule.isha_bucket_utc > now,
+                UserIshaSchedule.isha_bucket_utc <= window_end,
             )
             .distinct()
         )
