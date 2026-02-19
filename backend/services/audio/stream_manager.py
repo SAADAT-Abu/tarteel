@@ -1,6 +1,5 @@
 import subprocess
 import logging
-import os
 from pathlib import Path
 from config import get_settings
 
@@ -29,26 +28,36 @@ async def start_stream(room_slot_id: str, concat_file_path: str) -> subprocess.P
 
     m3u8 = get_m3u8_path(room_slot_id)
 
+    # Write FFmpeg stderr to a log file so:
+    #   1. The OS pipe buffer never fills up and blocks FFmpeg mid-stream
+    #   2. We can inspect errors at /app/hls/<room_id>/ffmpeg.log
+    log_path = output_dir / "ffmpeg.log"
+
     cmd = [
         "ffmpeg", "-y",
-        "-f", "concat", "-safe", "0", "-i", str(concat_file_path),
+        "-f", "concat", "-safe", "0",
+        "-i", str(concat_file_path),
+        # Resample to handle encoder-delay gaps between MP3 files
+        "-af", "aresample=async=1000",
         "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
+        "-vn",                                    # no video stream
+        "-max_muxing_queue_size", "1024",         # prevent muxing queue overflow
         "-f", "hls",
-        "-hls_time", "4",
-        "-hls_list_size", "0",
-        "-hls_flags", "append_list",
+        "-hls_time", "6",                         # 6-second segments — more stable than 4s
+        "-hls_list_size", "0",                    # keep all segments (VOD-style, join from start)
         "-hls_segment_filename", str(output_dir / "seg%05d.ts"),
         str(m3u8),
     ]
 
     try:
+        log_file = open(log_path, "w")
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
+            stderr=log_file,              # file write never blocks unlike a pipe
         )
         ACTIVE_STREAMS[room_slot_id] = proc
-        logger.info(f"Stream started for room {room_slot_id}, PID={proc.pid}")
+        logger.info(f"Stream started for room {room_slot_id}, PID={proc.pid}, log={log_path}")
         return proc
     except Exception as e:
         logger.error(f"Failed to start stream for room {room_slot_id}: {e}")
