@@ -1,0 +1,75 @@
+# Production docker-compose — used on the server.
+# Deploy with:  docker compose -f docker-compose.prod.yml up -d --build
+#
+# Required: create /opt/tarteel/.env from .env.production before first run.
+
+services:
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tarteel
+      POSTGRES_PASSWORD: ${DB_PASSWORD}      # set in .env on the server
+      POSTGRES_DB: tarteel
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # No port binding — only reachable inside the Docker network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tarteel"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # No port binding — only reachable inside the Docker network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env                            # server-side .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://tarteel:${DB_PASSWORD}@db:5432/tarteel
+      REDIS_URL: redis://redis:6379/0
+      AUDIO_DIR: /app/audio
+      HLS_OUTPUT_DIR: /app/hls
+      COOKIE_SECURE: "true"                  # HTTPS — httpOnly cookies are Secure
+      FRONTEND_URL: https://tarteel.live
+      BACKEND_URL: https://api.tarteel.live
+    volumes:
+      - ./audio:/app/audio
+      - ./hls:/app/hls
+      - ./data:/app/data
+    ports:
+      - "127.0.0.1:8000:8000"               # bind to loopback only — nginx proxies
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn main:application --host 0.0.0.0 --port 8000 --workers 2
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: https://api.tarteel.live
+        NEXT_PUBLIC_WS_URL: https://api.tarteel.live
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"               # bind to loopback only — nginx proxies
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:

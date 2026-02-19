@@ -1,0 +1,37 @@
+name: Deploy to Hetzner
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    name: SSH deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: deploy
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            cd /opt/tarteel
+
+            echo "── Pulling latest code ──"
+            git pull origin main
+
+            echo "── Rebuilding and restarting services ──"
+            docker compose -f docker-compose.prod.yml up -d --build
+
+            echo "── Removing unused Docker images ──"
+            docker image prune -f
+
+            echo "── Health check ──"
+            sleep 5
+            curl -sf https://api.tarteel.live/health && echo " backend OK" || echo " backend not yet ready (may still be starting)"
+
+            echo "── Deploy complete ──"
