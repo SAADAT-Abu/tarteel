@@ -70,7 +70,6 @@ async def get_tonight_rooms(
 async def get_room(
     room_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     slot = await db.get(RoomSlot, room_id)
     if not slot:
