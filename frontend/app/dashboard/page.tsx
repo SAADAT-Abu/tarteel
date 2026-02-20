@@ -119,20 +119,51 @@ export default function DashboardPage() {
 
         {/* ── Greeting ─────────────────────────────────────────────────── */}
         <div className="animate-fade-in-up">
-          <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-2xl md:text-3xl font-bold text-white">
-              Ramadan Mubarak{user?.name ? `, ${user.name}` : ""} 🌙
-            </h1>
-            {user && user.current_streak > 0 && (
-              <span className="px-3 py-1 rounded-full bg-mosque-gold/10 border border-mosque-gold/30 text-mosque-gold text-sm font-semibold">
-                🔥 {user.current_streak} night streak
-              </span>
-            )}
-          </div>
+          <h1 className="text-2xl md:text-3xl font-bold text-white">
+            Ramadan Mubarak{user?.name ? `, ${user.name}` : ""} 🌙
+          </h1>
           {tonight && (
             <p className="text-mosque-gold/80 mt-1 font-light">
               {getRamadanNightLabel(tonight.ramadan_night)} night of Ramadan
             </p>
+          )}
+          {/* Streak stats — always visible once user is loaded */}
+          {user && (
+            <div className="flex items-center gap-4 mt-3 flex-wrap">
+              <div className="flex items-center gap-1.5">
+                <span className="text-lg">🔥</span>
+                <div>
+                  <p className="text-xs text-gray-500 leading-none">Current streak</p>
+                  <p className="text-sm font-bold text-white leading-tight">
+                    {user.current_streak} {user.current_streak === 1 ? "night" : "nights"}
+                  </p>
+                </div>
+              </div>
+              <div className="w-px h-8 bg-white/10" />
+              <div className="flex items-center gap-1.5">
+                <span className="text-lg">🏆</span>
+                <div>
+                  <p className="text-xs text-gray-500 leading-none">Best streak</p>
+                  <p className="text-sm font-bold text-white leading-tight">
+                    {user.longest_streak} {user.longest_streak === 1 ? "night" : "nights"}
+                  </p>
+                </div>
+              </div>
+              {user.last_attended_night != null && (
+                <>
+                  <div className="w-px h-8 bg-white/10" />
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-lg">📖</span>
+                    <div>
+                      <p className="text-xs text-gray-500 leading-none">Last attended</p>
+                      <p className="text-sm font-bold text-white leading-tight">
+                        Night {user.last_attended_night}
+                      </p>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           )}
         </div>
 
