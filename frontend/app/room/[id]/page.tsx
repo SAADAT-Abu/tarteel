@@ -229,7 +229,7 @@ export default function RoomPage({ params }: { params: { id: string } }) {
           <div className="flex items-center gap-2">
             {status === "live" && <span className="live-dot" />}
             <span className="text-mosque-gold text-sm font-medium">
-              {room.ramadan_night === 0 ? "Admin Test Room" : `Night ${room.ramadan_night}`} · {room.rakats} Rakats
+              {room.is_private ? "Private Room" : room.ramadan_night === 0 ? "Admin Test Room" : `Night ${room.ramadan_night}`} · {room.rakats} Rakats
             </span>
             {room.is_private && (
               <span className="text-xs px-2 py-0.5 rounded-full bg-mosque-gold/10 text-mosque-gold border border-mosque-gold/20">
