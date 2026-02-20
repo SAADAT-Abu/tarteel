@@ -18,6 +18,7 @@ class RoomSlotResponse(BaseModel):
     started_at: datetime | None
     ended_at: datetime | None
     is_private: bool = False
+    creator_id: uuid.UUID | None = None
     invite_code: str | None = None
 
     class Config:

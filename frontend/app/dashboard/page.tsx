@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { roomsApi, usersApi, privateRoomsApi, TonightRooms, PrivateRoom } from "@/lib/api";
+import { roomsApi, usersApi, privateRoomsApi, friendsApi, TonightRooms, PrivateRoom, Friend } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth";
 import CountdownTimer from "@/components/CountdownTimer";
 import RoomCard from "@/components/RoomCard";
@@ -31,6 +31,11 @@ export default function DashboardPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createForm, setCreateForm] = useState({ rakats: 8, juz_number: 1, juz_per_night: 1.0 });
   const [creating, setCreating] = useState(false);
+  // Post-creation invite step
+  const [createdRoom, setCreatedRoom] = useState<{ id: string; room_url: string } | null>(null);
+  const [friends, setFriends] = useState<Friend[]>([]);
+  const [inviteBusy, setInviteBusy] = useState<Record<string, boolean>>({});
+  const [inviteDone, setInviteDone] = useState<Record<string, boolean>>({});
 
   const handleUnauth = useCallback(() => {
     clearAuth();
@@ -308,81 +313,161 @@ export default function DashboardPage() {
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/60 backdrop-blur-sm">
           <div className="w-full max-w-sm glass-card p-6 mosque-glow space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-bold text-white">Create Private Room</h2>
-              <button onClick={() => setShowCreateModal(false)} className="text-gray-500 hover:text-gray-300">✕</button>
-            </div>
 
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs text-gray-400 mb-1 block">Rakats</label>
-                <div className="flex gap-2">
-                  {[8, 20].map((r) => (
-                    <button
-                      key={r}
-                      onClick={() => setCreateForm((f) => ({ ...f, rakats: r }))}
-                      className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${
-                        createForm.rakats === r
-                          ? "border-mosque-gold bg-mosque-gold/10 text-mosque-gold"
-                          : "border-gray-700 text-gray-400"
-                      }`}
-                    >
-                      {r} Rakats
-                    </button>
-                  ))}
+            {/* Step 1 — configure room */}
+            {!createdRoom ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <h2 className="font-bold text-white">Create Private Room</h2>
+                  <button onClick={() => setShowCreateModal(false)} className="text-gray-500 hover:text-gray-300">✕</button>
                 </div>
-              </div>
 
-              <div>
-                <label className="text-xs text-gray-400 mb-1 block">Juz</label>
-                <select
-                  value={createForm.juz_number}
-                  onChange={(e) => setCreateForm((f) => ({ ...f, juz_number: Number(e.target.value) }))}
-                  className="w-full bg-mosque-darkest border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-mosque-gold/50"
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Rakats</label>
+                    <div className="flex gap-2">
+                      {[8, 20].map((r) => (
+                        <button
+                          key={r}
+                          onClick={() => setCreateForm((f) => ({ ...f, rakats: r }))}
+                          className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                            createForm.rakats === r
+                              ? "border-mosque-gold bg-mosque-gold/10 text-mosque-gold"
+                              : "border-gray-700 text-gray-400"
+                          }`}
+                        >
+                          {r} Rakats
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Juz</label>
+                    <select
+                      value={createForm.juz_number}
+                      onChange={(e) => setCreateForm((f) => ({ ...f, juz_number: Number(e.target.value) }))}
+                      className="w-full bg-mosque-darkest border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-mosque-gold/50"
+                    >
+                      {Array.from({ length: 30 }, (_, i) => i + 1).map((n) => (
+                        <option key={n} value={n}>Juz {n}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Amount</label>
+                    <div className="flex gap-2">
+                      {[1.0, 0.5].map((j) => (
+                        <button
+                          key={j}
+                          onClick={() => setCreateForm((f) => ({ ...f, juz_per_night: j }))}
+                          className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                            createForm.juz_per_night === j
+                              ? "border-mosque-gold bg-mosque-gold/10 text-mosque-gold"
+                              : "border-gray-700 text-gray-400"
+                          }`}
+                        >
+                          {j === 1.0 ? "Full Juz" : "Half Juz"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={async () => {
+                    setCreating(true);
+                    try {
+                      const res = await privateRoomsApi.create(createForm);
+                      setCreatedRoom({ id: res.data.id, room_url: res.data.room_url });
+                      // Reload private rooms list in background
+                      privateRoomsApi.list().then((r) => setPrivateRooms(r.data)).catch(() => {});
+                      // Load friends for invite step
+                      friendsApi.getAll().then((r) => setFriends(r.data.friends)).catch(() => {});
+                    } finally {
+                      setCreating(false);
+                    }
+                  }}
+                  disabled={creating}
+                  className="w-full py-3 bg-mosque-gold text-mosque-dark font-bold rounded-xl hover:bg-mosque-gold-light transition-colors disabled:opacity-50"
                 >
-                  {Array.from({ length: 30 }, (_, i) => i + 1).map((n) => (
-                    <option key={n} value={n}>Juz {n}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs text-gray-400 mb-1 block">Amount</label>
-                <div className="flex gap-2">
-                  {[1.0, 0.5].map((j) => (
-                    <button
-                      key={j}
-                      onClick={() => setCreateForm((f) => ({ ...f, juz_per_night: j }))}
-                      className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${
-                        createForm.juz_per_night === j
-                          ? "border-mosque-gold bg-mosque-gold/10 text-mosque-gold"
-                          : "border-gray-700 text-gray-400"
-                      }`}
-                    >
-                      {j === 1.0 ? "Full Juz" : "Half Juz"}
-                    </button>
-                  ))}
+                  {creating ? "Creating…" : "Create Room"}
+                </button>
+              </>
+            ) : (
+              /* Step 2 — invite friends */
+              <>
+                <div className="flex items-center justify-between">
+                  <h2 className="font-bold text-white">Invite Friends</h2>
+                  <button
+                    onClick={() => {
+                      setShowCreateModal(false);
+                      setCreatedRoom(null);
+                      setInviteBusy({});
+                      setInviteDone({});
+                    }}
+                    className="text-gray-500 hover:text-gray-300"
+                  >
+                    ✕
+                  </button>
                 </div>
-              </div>
-            </div>
 
-            <button
-              onClick={async () => {
-                setCreating(true);
-                try {
-                  await privateRoomsApi.create(createForm);
-                  const res = await privateRoomsApi.list();
-                  setPrivateRooms(res.data);
-                  setShowCreateModal(false);
-                } finally {
-                  setCreating(false);
-                }
-              }}
-              disabled={creating}
-              className="w-full py-3 bg-mosque-gold text-mosque-dark font-bold rounded-xl hover:bg-mosque-gold-light transition-colors disabled:opacity-50"
-            >
-              {creating ? "Creating…" : "Create Room"}
-            </button>
+                {/* Share link */}
+                <div className="bg-mosque-darkest border border-white/10 rounded-lg px-3 py-2">
+                  <p className="text-xs text-gray-400 mb-1">Room link</p>
+                  <p className="text-xs text-mosque-gold break-all">{createdRoom.room_url}</p>
+                </div>
+
+                {/* Friends list */}
+                {friends.length === 0 ? (
+                  <p className="text-sm text-gray-500 text-center py-2">
+                    No friends yet.{" "}
+                    <Link href="/friends" className="text-mosque-gold underline" onClick={() => { setShowCreateModal(false); setCreatedRoom(null); }}>
+                      Add friends
+                    </Link>
+                  </p>
+                ) : (
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {friends.map((f) => (
+                      <div key={f.id} className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm text-white">{f.name || f.email}</p>
+                          {f.name && <p className="text-xs text-gray-500">{f.email}</p>}
+                        </div>
+                        <button
+                          disabled={inviteBusy[f.id] || inviteDone[f.id]}
+                          onClick={async () => {
+                            setInviteBusy((p) => ({ ...p, [f.id]: true }));
+                            try {
+                              await privateRoomsApi.invite(createdRoom.id, f.id);
+                              setInviteDone((p) => ({ ...p, [f.id]: true }));
+                            } finally {
+                              setInviteBusy((p) => ({ ...p, [f.id]: false }));
+                            }
+                          }}
+                          className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                            inviteDone[f.id]
+                              ? "bg-green-900/40 text-green-400 cursor-default"
+                              : "bg-mosque-gold/10 border border-mosque-gold/30 text-mosque-gold hover:bg-mosque-gold/20 disabled:opacity-50"
+                          }`}
+                        >
+                          {inviteDone[f.id] ? "Invited" : inviteBusy[f.id] ? "…" : "Invite"}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <Link
+                  href={`/room/${createdRoom.id}`}
+                  className="block w-full py-3 bg-mosque-gold text-mosque-dark font-bold rounded-xl hover:bg-mosque-gold-light transition-colors text-center"
+                  onClick={() => { setShowCreateModal(false); setCreatedRoom(null); }}
+                >
+                  Go to Room
+                </Link>
+              </>
+            )}
           </div>
         </div>
       )}

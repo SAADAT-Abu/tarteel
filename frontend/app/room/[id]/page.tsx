@@ -1,7 +1,7 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { roomsApi, RoomSlot } from "@/lib/api";
+import { roomsApi, privateRoomsApi, friendsApi, RoomSlot, Friend } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
 import { useAuthStore } from "@/lib/auth";
 import AudioPlayer from "@/components/AudioPlayer";
@@ -33,7 +33,7 @@ function PrayerProgress({ pct, current, total }: { pct: number; current: number;
 }
 
 export default function RoomPage({ params }: { params: { id: string } }) {
-  const { user: token } = useAuthStore();
+  const { user } = useAuthStore();
   const [room, setRoom]                     = useState<RoomSlot | null>(null);
   const [status, setStatus]                 = useState<RoomStatus>("waiting");
   const [streamUrl, setStreamUrl]           = useState<string | null>(null);
@@ -42,6 +42,19 @@ export default function RoomPage({ params }: { params: { id: string } }) {
   const [joinedLate, setJoinedLate]         = useState(false);
   const [error, setError]                   = useState("");
   const [progress, setProgress]             = useState<{ pct: number; current: number; total: number } | null>(null);
+  const [starting, setStarting]             = useState(false);
+  const [friends, setFriends]               = useState<Friend[]>([]);
+  const [inviteBusy, setInviteBusy]         = useState<Record<string, boolean>>({});
+  const [inviteDone, setInviteDone]         = useState<Record<string, boolean>>({});
+
+  const isCreator = !!(room?.is_private && user && room.creator_id === user.id);
+
+  const loadFriends = useCallback(async () => {
+    try {
+      const res = await friendsApi.getAll();
+      setFriends(res.data.friends);
+    } catch { /* not critical */ }
+  }, []);
 
   useEffect(() => {
     roomsApi.getRoom(params.id).then((res) => {
@@ -60,7 +73,7 @@ export default function RoomPage({ params }: { params: { id: string } }) {
       }
     }).catch(() => setError("Room not found"));
 
-    if (token) {
+    if (user) {
       roomsApi.joinRoom(params.id).catch((e: { response?: { status?: number; data?: { detail?: string } } }) => {
         if (e.response?.status === 403) {
           setError(e.response.data?.detail || "This is a private room — you need an invite");
@@ -84,7 +97,34 @@ export default function RoomPage({ params }: { params: { id: string } }) {
       socket.off("rakah_update");
       socket.off("room_ended");
     };
-  }, [params.id, token]);
+  }, [params.id, user]);
+
+  // Load friends once we know this is a private room and the user is the creator
+  useEffect(() => {
+    if (isCreator) loadFriends();
+  }, [isCreator, loadFriends]);
+
+  const handleStartPrayer = async () => {
+    if (!room) return;
+    setStarting(true);
+    try {
+      await privateRoomsApi.start(room.id);
+      // room_started WebSocket event will flip status to "live"
+    } catch {
+      setStarting(false);
+    }
+  };
+
+  const handleInvite = async (friendId: string) => {
+    if (!room) return;
+    setInviteBusy((b) => ({ ...b, [friendId]: true }));
+    try {
+      await privateRoomsApi.invite(room.id, friendId);
+      setInviteDone((d) => ({ ...d, [friendId]: true }));
+    } finally {
+      setInviteBusy((b) => ({ ...b, [friendId]: false }));
+    }
+  };
 
   if (error) return (
     <div className="min-h-screen bg-mosque-darkest flex items-center justify-center">
@@ -166,27 +206,120 @@ export default function RoomPage({ params }: { params: { id: string } }) {
         {/* ── Status displays ─────────────────────────────────────── */}
 
         {status === "waiting" && (
-          <div className="text-center animate-fade-in-up">
-            <div className="text-6xl mb-5 animate-float inline-block">🕌</div>
-            <p className="text-xl text-gray-200 font-light mb-2">Waiting for Isha…</p>
-            <p className="text-gray-500 text-sm">The room will start automatically at Isha time</p>
-            <div className="mt-8 glass-card px-8 py-4 text-center">
-              <p className="text-gray-400 text-xs mb-2">You are registered</p>
+          <div className="w-full max-w-md space-y-6 animate-fade-in-up">
+            <div className="text-center">
+              <div className="text-6xl mb-5 animate-float inline-block">🕌</div>
+              {isCreator ? (
+                <>
+                  <p className="text-xl text-gray-200 font-light mb-2">Your room is ready</p>
+                  <p className="text-gray-500 text-sm">Start the prayer whenever you're ready</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-xl text-gray-200 font-light mb-2">Waiting for the host…</p>
+                  <p className="text-gray-500 text-sm">The creator will start the prayer shortly</p>
+                </>
+              )}
+            </div>
+
+            <div className="glass-card px-8 py-4 text-center">
+              <p className="text-gray-400 text-xs mb-2">Room</p>
               <p className="text-mosque-gold font-medium">{room.rakats} Rakats · {juzLabel}</p>
             </div>
+
+            {/* Creator controls */}
+            {isCreator && (
+              <div className="space-y-4">
+                {/* Start button */}
+                <button
+                  onClick={handleStartPrayer}
+                  disabled={starting}
+                  className="w-full py-4 bg-mosque-gold text-mosque-dark font-bold rounded-2xl hover:bg-mosque-gold-light transition-all disabled:opacity-50 text-lg"
+                >
+                  {starting ? "Starting prayer…" : "▶ Start Prayer Now"}
+                </button>
+
+                {/* Invite friends */}
+                <div className="glass-card p-5 space-y-3">
+                  <p className="text-sm font-semibold text-white">Invite Friends</p>
+                  {friends.length === 0 ? (
+                    <p className="text-xs text-gray-500">
+                      No friends yet —{" "}
+                      <Link href="/friends" className="text-mosque-gold hover:underline">add friends</Link>
+                      {" "}to invite them.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {friends.map((f) => (
+                        <div key={f.id} className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm text-white truncate">{f.name || f.email}</p>
+                            {f.name && <p className="text-xs text-gray-500 truncate">{f.email}</p>}
+                          </div>
+                          <button
+                            onClick={() => handleInvite(f.id)}
+                            disabled={!!inviteBusy[f.id] || !!inviteDone[f.id]}
+                            className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-all shrink-0 disabled:opacity-50 ${
+                              inviteDone[f.id]
+                                ? "border-green-700 text-green-400 bg-green-900/20"
+                                : "border-mosque-gold/40 text-mosque-gold hover:bg-mosque-gold/10"
+                            }`}
+                          >
+                            {inviteDone[f.id] ? "Invited ✓" : inviteBusy[f.id] ? "…" : "Invite"}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {room.invite_code && (
+                    <div className="pt-2 border-t border-white/5">
+                      <p className="text-xs text-gray-500 mb-1">Or share this room link:</p>
+                      <p className="text-xs text-mosque-gold font-mono break-all">
+                        {typeof window !== "undefined" ? window.location.href : ""}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
         {status === "building" && (
-          <div className="text-center animate-fade-in-up">
-            <div className="text-5xl mb-4">⏳</div>
-            <p className="text-xl text-gray-200 font-light mb-2">Preparing the prayer…</p>
-            <p className="text-gray-500 text-sm">Audio is being assembled. Starting shortly.</p>
-            <div className="mt-6 flex justify-center gap-1">
-              {[1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className={`audio-bar h-6`} style={{ animationDelay: `${i * 0.15}s` }} />
-              ))}
+          <div className="w-full max-w-md space-y-6 animate-fade-in-up">
+            <div className="text-center">
+              <div className="text-5xl mb-4">⏳</div>
+              <p className="text-xl text-gray-200 font-light mb-2">Preparing the prayer…</p>
+              <p className="text-gray-500 text-sm">Audio is being assembled. Starting shortly.</p>
+              <div className="mt-6 flex justify-center gap-1">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <div key={i} className={`audio-bar h-6`} style={{ animationDelay: `${i * 0.15}s` }} />
+                ))}
+              </div>
             </div>
+
+            {/* Creator can still invite while building */}
+            {isCreator && friends.length > 0 && (
+              <div className="glass-card p-5 space-y-2">
+                <p className="text-sm font-semibold text-white">Invite Friends</p>
+                {friends.map((f) => (
+                  <div key={f.id} className="flex items-center justify-between gap-3">
+                    <p className="text-sm text-white truncate">{f.name || f.email}</p>
+                    <button
+                      onClick={() => handleInvite(f.id)}
+                      disabled={!!inviteBusy[f.id] || !!inviteDone[f.id]}
+                      className={`text-xs px-3 py-1.5 rounded-lg border font-medium shrink-0 disabled:opacity-50 transition-all ${
+                        inviteDone[f.id]
+                          ? "border-green-700 text-green-400 bg-green-900/20"
+                          : "border-mosque-gold/40 text-mosque-gold hover:bg-mosque-gold/10"
+                      }`}
+                    >
+                      {inviteDone[f.id] ? "Invited ✓" : inviteBusy[f.id] ? "…" : "Invite"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

@@ -45,6 +45,7 @@ export interface RoomSlot {
   started_at: string | null;
   ended_at: string | null;
   is_private: boolean;
+  creator_id: string | null;
   invite_code: string | null;
 }
 
