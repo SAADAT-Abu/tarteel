@@ -12,6 +12,13 @@ export default function AudioPlayer({ streamUrl, onProgress }: Props) {
   const audioRef  = useRef<HTMLAudioElement>(null);
   const hlsRef    = useRef<unknown>(null);
   const totalDurationRef = useRef<number>(0);
+  // Keep a ref to onProgress so we can call it from the useEffect without
+  // including it in the dependency array.  Including an inline callback
+  // prop in deps causes the effect (and the HLS player) to be torn down and
+  // recreated on every parent re-render that happens during playback (e.g.
+  // every timeupdate → setProgress → parent renders → new fn reference).
+  const onProgressRef = useRef(onProgress);
+  useEffect(() => { onProgressRef.current = onProgress; });
   const [playing,  setPlaying]  = useState(false);
   const [stalled,  setStalled]  = useState(false);
   const [retrying, setRetrying] = useState(false);
@@ -108,13 +115,14 @@ export default function AudioPlayer({ streamUrl, onProgress }: Props) {
       }
     };
 
-    // Progress updates
+    // Progress updates — use the ref so the HLS effect doesn't re-run when
+    // the parent passes a new inline function on each render.
     const onTimeUpdate = () => {
-      if (!audioRef.current || !onProgress) return;
+      if (!audioRef.current || !onProgressRef.current) return;
       const current = audioRef.current.currentTime;
       const total = totalDurationRef.current || audioRef.current.duration;
       if (total > 0 && isFinite(total)) {
-        onProgress(Math.min((current / total) * 100, 100), current, total);
+        onProgressRef.current(Math.min((current / total) * 100, 100), current, total);
       }
     };
 
@@ -151,7 +159,7 @@ export default function AudioPlayer({ streamUrl, onProgress }: Props) {
       audio.removeEventListener("ended",      onEnded);
       audio.removeEventListener("timeupdate", onTimeUpdate);
     };
-  }, [streamUrl, recoverStall, onProgress]);
+  }, [streamUrl, recoverStall]);
 
   const handleTap = () => {
     if (audioRef.current && !playing) {
