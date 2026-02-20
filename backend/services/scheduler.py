@@ -147,17 +147,18 @@ def _schedule_room_jobs(slot: RoomSlot) -> None:
 
 
 async def reschedule_pending_rooms() -> None:
-    """On startup: reset interrupted builds, reschedule all pending rooms.
+    """On startup: reset interrupted builds, reschedule pending rooms, restart live streams.
 
     Fixes the problem where APScheduler loses all jobs on every container
-    restart (it uses an in-memory store by default).
+    restart (it uses an in-memory store by default).  Also restarts any
+    'live' rooms whose FFmpeg process was killed by the container restart.
     """
     now = datetime.now(timezone.utc)
     async with AsyncSessionLocal() as db:
         result = await db.execute(
             select(RoomSlot).where(
-                RoomSlot.status.in_(["scheduled", "building"]),
-                RoomSlot.isha_bucket_utc > now - timedelta(hours=3),
+                RoomSlot.status.in_(["scheduled", "building", "live"]),
+                RoomSlot.isha_bucket_utc > now - timedelta(hours=4),
             )
         )
         slots = result.scalars().all()
@@ -172,22 +173,75 @@ async def reschedule_pending_rooms() -> None:
 
         await db.commit()
 
-        # Reschedule downstream jobs for every pending room
         for slot in slots:
-            _schedule_room_jobs(slot)
-            # If build window already passed but playlist not yet built → build now
-            build_time = slot.isha_bucket_utc - timedelta(minutes=90)
-            if not slot.playlist_built and build_time <= now and slot.isha_bucket_utc > now:
+            if slot.status == "live":
+                # Restart the stream — FFmpeg was killed by the container restart
+                logger.info(f"Restarting stream for live room {slot.id}")
                 scheduler.add_job(
-                    build_playlist_job, "date",
-                    run_date=now + timedelta(seconds=5),
+                    _restart_live_room, "date",
+                    run_date=now + timedelta(seconds=10),
                     args=[str(slot.id)],
-                    id=f"build_urgent_{slot.id}",
+                    id=f"restart_live_{slot.id}",
                     replace_existing=True,
                 )
-                logger.info(f"Urgent build scheduled for room {slot.id}")
+            else:
+                # Reschedule downstream jobs for pending rooms
+                _schedule_room_jobs(slot)
+                # If build window already passed but playlist not yet built → build now
+                build_time = slot.isha_bucket_utc - timedelta(minutes=90)
+                if not slot.playlist_built and build_time <= now and slot.isha_bucket_utc > now:
+                    scheduler.add_job(
+                        build_playlist_job, "date",
+                        run_date=now + timedelta(seconds=5),
+                        args=[str(slot.id)],
+                        id=f"build_urgent_{slot.id}",
+                        replace_existing=True,
+                    )
+                    logger.info(f"Urgent build scheduled for room {slot.id}")
 
     logger.info(f"reschedule_pending_rooms: processed {len(slots)} room(s)")
+
+
+async def _restart_live_room(room_slot_id: str) -> None:
+    """Restart FFmpeg for a room that was live when the backend restarted."""
+    try:
+        async with AsyncSessionLocal() as db:
+            slot = await db.get(RoomSlot, uuid.UUID(room_slot_id))
+            if not slot or slot.status != "live":
+                return
+            if not slot.stream_path:
+                logger.warning(f"_restart_live_room: no stream_path for {room_slot_id}")
+                return
+
+        from services.audio.stream_manager import get_m3u8_path
+        m3u8 = get_m3u8_path(room_slot_id)
+        # Clean old segments so the playlist starts fresh
+        hls_dir = m3u8.parent
+        for f in hls_dir.glob("seg*.ts"):
+            f.unlink(missing_ok=True)
+        if m3u8.exists():
+            m3u8.unlink()
+
+        proc = await start_stream(room_slot_id, slot.stream_path)
+        if not proc:
+            logger.error(f"_restart_live_room: FFmpeg failed to start for {room_slot_id}")
+            return
+
+        # Wait for manifest
+        for _ in range(90):
+            await asyncio.sleep(0.5)
+            if m3u8.exists() and m3u8.stat().st_size > 50:
+                break
+        else:
+            logger.error(f"_restart_live_room: manifest not ready after 45s for {room_slot_id}")
+            return
+
+        from ws.events import sio
+        from services.audio.stream_manager import get_stream_url
+        await sio.emit("room_started", {"stream_url": get_stream_url(room_slot_id)}, room=room_slot_id)
+        logger.info(f"_restart_live_room: stream restarted for {room_slot_id}")
+    except Exception as e:
+        logger.error(f"_restart_live_room failed for {room_slot_id}: {e}", exc_info=True)
 
 
 async def build_playlist_job(room_slot_id: str) -> None:
