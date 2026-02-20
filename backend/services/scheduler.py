@@ -15,6 +15,21 @@ settings = get_settings()
 
 scheduler = AsyncIOScheduler(timezone="UTC")
 
+_scheduler_enabled: bool = True
+
+
+def set_scheduler_enabled(enabled: bool) -> None:
+    global _scheduler_enabled
+    _scheduler_enabled = enabled
+    if enabled:
+        scheduler.resume()
+    else:
+        scheduler.pause()
+
+
+def is_scheduler_enabled() -> bool:
+    return _scheduler_enabled
+
 ROOM_TYPES = [
     {"rakats": 8,  "juz_per_night": 1.0},
     {"rakats": 8,  "juz_per_night": 0.5},

@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Boolean, Integer, SmallInteger, Float, TIMESTAMP, func, Index
+from sqlalchemy import String, Boolean, Integer, SmallInteger, Float, TIMESTAMP, func, Index, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from database import Base
@@ -25,6 +25,11 @@ class RoomSlot(Base):
     started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     ended_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     participant_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Private room fields
+    is_private: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    creator_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    invite_code: Mapped[str | None] = mapped_column(String(12), nullable=True, unique=True)
 
     # Relationships
     participants: Mapped[list["RoomParticipant"]] = relationship(back_populates="room_slot", cascade="all, delete-orphan")

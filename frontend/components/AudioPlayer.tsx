@@ -3,13 +3,15 @@ import { useEffect, useRef, useState, useCallback } from "react";
 
 interface Props {
   streamUrl: string;
+  onProgress?: (pct: number, current: number, total: number) => void;
 }
 
 const BAR_HEIGHTS = [28, 44, 60, 44, 36, 52, 28, 48, 40, 56];
 
-export default function AudioPlayer({ streamUrl }: Props) {
+export default function AudioPlayer({ streamUrl, onProgress }: Props) {
   const audioRef  = useRef<HTMLAudioElement>(null);
   const hlsRef    = useRef<unknown>(null);
+  const totalDurationRef = useRef<number>(0);
   const [playing,  setPlaying]  = useState(false);
   const [stalled,  setStalled]  = useState(false);
   const [retrying, setRetrying] = useState(false);
@@ -61,6 +63,13 @@ export default function AudioPlayer({ streamUrl }: Props) {
           audio.play().then(() => { setPlaying(true); setStalled(false); }).catch(() => {});
         });
 
+        // Capture total stream duration when playlist is fully loaded
+        hls.on(Hls.Events.LEVEL_LOADED, (_ev: unknown, data: { details: { totalduration: number } }) => {
+          if (data.details.totalduration > 0) {
+            totalDurationRef.current = data.details.totalduration;
+          }
+        });
+
         hls.on(Hls.Events.ERROR, (_ev, data) => {
           if (!data.fatal) return;
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
@@ -91,6 +100,16 @@ export default function AudioPlayer({ streamUrl }: Props) {
       }
     };
 
+    // Progress updates
+    const onTimeUpdate = () => {
+      if (!audioRef.current || !onProgress) return;
+      const current = audioRef.current.currentTime;
+      const total = totalDurationRef.current || audioRef.current.duration;
+      if (total > 0 && isFinite(total)) {
+        onProgress(Math.min((current / total) * 100, 100), current, total);
+      }
+    };
+
     // Native audio stall/waiting events (covers both hls.js and native HLS)
     const onPlaying = () => { setPlaying(true); setStalled(false); };
     const onWaiting = () => setStalled(true);
@@ -106,23 +125,25 @@ export default function AudioPlayer({ streamUrl }: Props) {
     const onPause  = () => setPlaying(false);
     const onEnded  = () => { setPlaying(false); setStalled(false); };
 
-    audio.addEventListener("playing", onPlaying);
-    audio.addEventListener("waiting", onWaiting);
-    audio.addEventListener("stalled", onStalled);
-    audio.addEventListener("pause",   onPause);
-    audio.addEventListener("ended",   onEnded);
+    audio.addEventListener("playing",    onPlaying);
+    audio.addEventListener("waiting",    onWaiting);
+    audio.addEventListener("stalled",    onStalled);
+    audio.addEventListener("pause",      onPause);
+    audio.addEventListener("ended",      onEnded);
+    audio.addEventListener("timeupdate", onTimeUpdate);
 
     initPlayer();
 
     return () => {
       if (hlsRef.current) { (hlsRef.current as { destroy(): void }).destroy(); hlsRef.current = null; }
-      audio.removeEventListener("playing", onPlaying);
-      audio.removeEventListener("waiting", onWaiting);
-      audio.removeEventListener("stalled", onStalled);
-      audio.removeEventListener("pause",   onPause);
-      audio.removeEventListener("ended",   onEnded);
+      audio.removeEventListener("playing",    onPlaying);
+      audio.removeEventListener("waiting",    onWaiting);
+      audio.removeEventListener("stalled",    onStalled);
+      audio.removeEventListener("pause",      onPause);
+      audio.removeEventListener("ended",      onEnded);
+      audio.removeEventListener("timeupdate", onTimeUpdate);
     };
-  }, [streamUrl, recoverStall]);
+  }, [streamUrl, recoverStall, onProgress]);
 
   const handleTap = () => {
     if (audioRef.current && !playing) {

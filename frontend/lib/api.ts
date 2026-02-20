@@ -25,6 +25,9 @@ export interface User {
   notify_email: boolean;
   notify_minutes_before: number;
   is_active: boolean;
+  current_streak: number;
+  longest_streak: number;
+  last_attended_night: number | null;
 }
 
 export interface RoomSlot {
@@ -41,6 +44,34 @@ export interface RoomSlot {
   participant_count: number;
   started_at: string | null;
   ended_at: string | null;
+  is_private: boolean;
+  invite_code: string | null;
+}
+
+export interface Friend {
+  id: string;
+  name: string | null;
+  email: string;
+  status: string;
+  created_at: string;
+}
+
+export interface FriendsResponse {
+  friends: Friend[];
+  pending_incoming: Friend[];
+  pending_outgoing: Friend[];
+}
+
+export interface PrivateRoom {
+  id: string;
+  status: string;
+  rakats: number;
+  juz_number: number;
+  juz_per_night: number;
+  invite_code: string | null;
+  participant_count: number;
+  started_at: string | null;
+  role: "creator" | "invitee";
 }
 
 export interface TonightRooms {
@@ -70,6 +101,25 @@ export const roomsApi = {
 export const usersApi = {
   getMe: () => api.get<User>("/users/me"),
   updateMe: (data: Partial<User>) => api.put<User>("/users/me", data),
+};
+
+// Friends
+export const friendsApi = {
+  search: (q: string) => api.get<{ id: string; name: string | null; email: string }[]>(`/users/search?q=${encodeURIComponent(q)}`),
+  getAll: () => api.get<FriendsResponse>("/friends"),
+  send: (userId: string) => api.post(`/friends/${userId}`),
+  accept: (userId: string) => api.patch(`/friends/${userId}/accept`),
+  remove: (userId: string) => api.delete(`/friends/${userId}`),
+};
+
+// Private rooms
+export const privateRoomsApi = {
+  create: (data: { rakats: number; juz_number: number; juz_per_night: number }) =>
+    api.post<{ id: string; invite_code: string; status: string; room_url: string }>("/private-rooms", data),
+  list: () => api.get<{ created: PrivateRoom[]; invited: PrivateRoom[] }>("/private-rooms"),
+  invite: (roomId: string, friendId: string) => api.post(`/private-rooms/${roomId}/invite/${friendId}`),
+  start: (roomId: string) => api.post(`/private-rooms/${roomId}/start`),
+  delete: (roomId: string) => api.delete(`/private-rooms/${roomId}`),
 };
 
 // Utility

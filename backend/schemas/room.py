@@ -17,6 +17,8 @@ class RoomSlotResponse(BaseModel):
     participant_count: int
     started_at: datetime | None
     ended_at: datetime | None
+    is_private: bool = False
+    invite_code: str | None = None
 
     class Config:
         from_attributes = True

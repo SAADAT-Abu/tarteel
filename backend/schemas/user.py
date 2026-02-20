@@ -143,6 +143,9 @@ class UserResponse(BaseModel):
     notify_email: bool
     notify_minutes_before: int
     is_active: bool
+    current_streak: int = 0
+    longest_streak: int = 0
+    last_attended_night: int | None = None
 
     class Config:
         from_attributes = True

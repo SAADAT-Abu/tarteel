@@ -9,6 +9,29 @@ import RakahIndicator from "@/components/RakahIndicator";
 
 type RoomStatus = "waiting" | "building" | "live" | "ended";
 
+function PrayerProgress({ pct, current, total }: { pct: number; current: number; total: number }) {
+  const fmtMin = (s: number) => {
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, "0")}`;
+  };
+  const remaining = Math.max(0, total - current);
+  return (
+    <div className="w-full space-y-1.5">
+      <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
+        <div
+          className="h-full bg-mosque-gold rounded-full transition-all duration-1000"
+          style={{ width: `${Math.min(pct, 100)}%` }}
+        />
+      </div>
+      <div className="flex justify-between text-xs text-gray-500">
+        <span>{fmtMin(current)} in</span>
+        <span>{fmtMin(remaining)} remaining</span>
+      </div>
+    </div>
+  );
+}
+
 export default function RoomPage({ params }: { params: { id: string } }) {
   const { user: token } = useAuthStore();
   const [room, setRoom]                     = useState<RoomSlot | null>(null);
@@ -18,6 +41,7 @@ export default function RoomPage({ params }: { params: { id: string } }) {
   const [rakah, setRakah]                   = useState<{ current: number; total: number } | null>(null);
   const [joinedLate, setJoinedLate]         = useState(false);
   const [error, setError]                   = useState("");
+  const [progress, setProgress]             = useState<{ pct: number; current: number; total: number } | null>(null);
 
   useEffect(() => {
     roomsApi.getRoom(params.id).then((res) => {
@@ -36,7 +60,13 @@ export default function RoomPage({ params }: { params: { id: string } }) {
       }
     }).catch(() => setError("Room not found"));
 
-    if (token) roomsApi.joinRoom(params.id).catch(() => {});
+    if (token) {
+      roomsApi.joinRoom(params.id).catch((e: { response?: { status?: number; data?: { detail?: string } } }) => {
+        if (e.response?.status === 403) {
+          setError(e.response.data?.detail || "This is a private room — you need an invite");
+        }
+      });
+    }
 
     const socket = getSocket();
     socket.emit("join_room", params.id);
@@ -99,6 +129,11 @@ export default function RoomPage({ params }: { params: { id: string } }) {
             <span className="text-mosque-gold text-sm font-medium">
               {room.ramadan_night === 0 ? "Admin Test Room" : `Night ${room.ramadan_night}`} · {room.rakats} Rakats
             </span>
+            {room.is_private && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-mosque-gold/10 text-mosque-gold border border-mosque-gold/20">
+                Private
+              </span>
+            )}
           </div>
           {participantCount > 0 && (
             <>
@@ -121,7 +156,9 @@ export default function RoomPage({ params }: { params: { id: string } }) {
           <div className="glass-card px-6 py-4 text-center max-w-sm w-full">
             <p className="text-mosque-gold font-semibold mb-1 text-sm">You joined late</p>
             <p className="text-gray-400 text-xs">
-              The prayer is in progress — join and follow from where it is now.
+              {progress && progress.total > 0
+                ? `Joining ${Math.round(progress.pct)}% through the prayer — follow from where it is now.`
+                : "The prayer is in progress — join and follow from where it is now."}
             </p>
           </div>
         )}
@@ -163,8 +200,16 @@ export default function RoomPage({ params }: { params: { id: string } }) {
 
             {/* Audio player */}
             <div className="glass-card p-6 mosque-glow text-center">
-              <AudioPlayer streamUrl={streamUrl} />
+              <AudioPlayer
+                streamUrl={streamUrl}
+                onProgress={(pct, current, total) => setProgress({ pct, current, total })}
+              />
               <p className="text-gray-500 text-xs mt-4">Taraweeh is in progress</p>
+              {progress && progress.total > 0 && (
+                <div className="mt-4">
+                  <PrayerProgress pct={progress.pct} current={progress.current} total={progress.total} />
+                </div>
+              )}
             </div>
 
             {/* Rakat progress */}

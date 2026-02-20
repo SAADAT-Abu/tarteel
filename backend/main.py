@@ -13,6 +13,8 @@ from api.auth import router as auth_router
 from api.users import router as users_router
 from api.rooms import router as rooms_router
 from api.admin import router as admin_router
+from api.friends import router as friends_router
+from api.private_rooms import router as private_rooms_router
 from services.scheduler import start_scheduler
 from ws.events import sio
 
@@ -63,6 +65,8 @@ app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(rooms_router)
 app.include_router(admin_router)
+app.include_router(friends_router)
+app.include_router(private_rooms_router)
 
 # Serve HLS files statically
 hls_dir = Path(settings.HLS_OUTPUT_DIR)

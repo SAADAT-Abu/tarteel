@@ -36,6 +36,11 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
 
+    # Streaks
+    current_streak: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    longest_streak: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    last_attended_night: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+
     # Relationships
     isha_schedule: Mapped[list["UserIshaSchedule"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     participants: Mapped[list["RoomParticipant"]] = relationship(back_populates="user", cascade="all, delete-orphan")

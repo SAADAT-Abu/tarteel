@@ -19,6 +19,8 @@ sio = socketio.AsyncServer(
 
 # Maps session_id → (user_id, room_slot_id)
 _sessions: dict[str, tuple[str, str]] = {}
+# Maps session_id → user_id (populated at connect time)
+_user_by_sid: dict[str, str] = {}
 
 
 def _extract_cookie(environ: dict, name: str) -> str | None:
@@ -49,11 +51,13 @@ async def connect(sid: str, environ, auth):
     if not user_id:
         logger.warning(f"Socket rejected (no valid auth cookie): {sid}")
         return False  # Reject the connection
+    _user_by_sid[sid] = user_id
     logger.info(f"Socket connected: {sid} user={user_id}")
 
 
 @sio.event
 async def disconnect(sid: str):
+    _user_by_sid.pop(sid, None)
     if sid in _sessions:
         user_id, room_slot_id = _sessions.pop(sid)
         await sio.leave_room(sid, room_slot_id)
@@ -70,6 +74,10 @@ async def join_room(sid: str, room_slot_id: str):
         if not slot:
             await sio.emit("error", {"message": "Room not found"}, to=sid)
             return
+
+        # Record session so disconnect can decrement the count
+        user_id = _user_by_sid.get(sid, sid)
+        _sessions[sid] = (user_id, room_slot_id)
 
         count = await _update_participant_count(room_slot_id, delta=1)
 

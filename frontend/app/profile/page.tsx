@@ -52,6 +52,30 @@ export default function ProfilePage() {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-8 space-y-6">
+
+        {/* Streak card */}
+        {form.current_streak !== undefined && (form.current_streak ?? 0) > 0 && (
+          <div className="bg-mosque-navy rounded-2xl p-6 mosque-glow">
+            <h2 className="text-xl font-bold mb-4">Attendance Streak</h2>
+            <div className="grid grid-cols-3 gap-4 text-center">
+              <div>
+                <div className="text-3xl font-bold text-mosque-gold">🔥 {form.current_streak}</div>
+                <div className="text-xs text-gray-400 mt-1">Current streak</div>
+              </div>
+              <div>
+                <div className="text-3xl font-bold text-mosque-gold">{form.longest_streak ?? 0}</div>
+                <div className="text-xs text-gray-400 mt-1">Longest streak</div>
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-mosque-gold">
+                  {form.last_attended_night ? `Night ${form.last_attended_night}` : "—"}
+                </div>
+                <div className="text-xs text-gray-400 mt-1">Last attended</div>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="bg-mosque-navy rounded-2xl p-6 mosque-glow space-y-4">
           <h2 className="text-xl font-bold mb-4">Notification Settings</h2>
           <div>

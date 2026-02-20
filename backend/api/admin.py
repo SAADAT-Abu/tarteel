@@ -14,6 +14,7 @@ from models import RoomSlot, User, UserIshaSchedule, RoomParticipant
 from services.scheduler import (
     build_playlist_job, start_stream_job, send_notifications_job,
     room_cleanup_job, daily_room_creation,
+    set_scheduler_enabled, is_scheduler_enabled,
 )
 from services.audio.stream_manager import get_stream_url
 
@@ -26,6 +27,25 @@ _api_key_header = APIKeyHeader(name="X-Admin-Key", auto_error=True)
 async def require_admin_key(key: str = Security(_api_key_header)) -> None:
     if not settings.ADMIN_API_KEY or key != settings.ADMIN_API_KEY:
         raise HTTPException(status_code=403, detail="Invalid or missing admin key")
+
+
+# ── Scheduler toggle ──────────────────────────────────────────────────────────
+
+@router.get("/scheduler", dependencies=[Depends(require_admin_key)])
+async def get_scheduler_status():
+    return {"enabled": is_scheduler_enabled()}
+
+
+@router.post("/scheduler/enable", dependencies=[Depends(require_admin_key)])
+async def enable_scheduler():
+    set_scheduler_enabled(True)
+    return {"enabled": True}
+
+
+@router.post("/scheduler/disable", dependencies=[Depends(require_admin_key)])
+async def disable_scheduler():
+    set_scheduler_enabled(False)
+    return {"enabled": False}
 
 
 # ── Overview ──────────────────────────────────────────────────────────────────

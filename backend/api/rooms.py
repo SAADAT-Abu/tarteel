@@ -87,12 +87,34 @@ async def join_room(
     if not slot:
         raise HTTPException(status_code=404, detail="Room not found")
 
-    # Upsert participant record
+    # Private room: check user is on invite list or is creator
+    if slot.is_private:
+        if slot.creator_id != current_user.id:
+            from models.private_invite import PrivateRoomInvite
+            invite = await db.get(PrivateRoomInvite, (room_id, current_user.id))
+            if not invite:
+                raise HTTPException(status_code=403, detail="This is a private room — you need an invite")
+
+    # Upsert participant record (WebSocket is source of truth for live count)
     existing = await db.get(RoomParticipant, (room_id, current_user.id))
     if not existing:
         participant = RoomParticipant(room_slot_id=room_id, user_id=current_user.id)
         db.add(participant)
-        slot.participant_count += 1
+
+        # Update streak if this is a real Ramadan night
+        night = slot.ramadan_night
+        if night and night > 0:
+            user = await db.get(User, current_user.id)
+            if user:
+                if user.last_attended_night == night:
+                    pass  # already attended tonight
+                elif user.last_attended_night == night - 1:
+                    user.current_streak += 1
+                else:
+                    user.current_streak = 1
+                user.longest_streak = max(user.longest_streak, user.current_streak)
+                user.last_attended_night = night
+
         await db.commit()
         await db.refresh(slot)
 

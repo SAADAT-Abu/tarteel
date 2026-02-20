@@ -6,6 +6,7 @@ const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 // ── Types ──────────────────────────────────────────────────────────────────
 
 interface Overview { total_users: number; active_users: number; total_rooms: number; live_rooms: number; }
+interface SchedulerStatus { enabled: boolean; }
 interface AdminUser {
   id: string; email: string; name: string | null; city: string | null; country: string | null;
   timezone: string | null; rakats: number; juz_per_night: number; phone: string | null;
@@ -49,15 +50,16 @@ function fmtTime(iso: string | null) {
 // ── Main component ─────────────────────────────────────────────────────────
 
 export default function AdminPage() {
-  const [key,      setKey]      = useState("");
-  const [authed,   setAuthed]   = useState(false);
-  const [tab,      setTab]      = useState<"rooms" | "users">("rooms");
-  const [overview, setOverview] = useState<Overview | null>(null);
-  const [rooms,    setRooms]    = useState<AdminRoom[]>([]);
-  const [users,    setUsers]    = useState<AdminUser[]>([]);
-  const [busy,     setBusy]     = useState<Record<string, boolean>>({});
-  const [toast,    setToast]    = useState<{ msg: string; ok: boolean }>({ msg: "", ok: true });
-  const [search,   setSearch]   = useState("");
+  const [key,       setKey]       = useState("");
+  const [authed,    setAuthed]    = useState(false);
+  const [tab,       setTab]       = useState<"rooms" | "users">("rooms");
+  const [overview,  setOverview]  = useState<Overview | null>(null);
+  const [rooms,     setRooms]     = useState<AdminRoom[]>([]);
+  const [users,     setUsers]     = useState<AdminUser[]>([]);
+  const [busy,      setBusy]      = useState<Record<string, boolean>>({});
+  const [toast,     setToast]     = useState<{ msg: string; ok: boolean }>({ msg: "", ok: true });
+  const [search,    setSearch]    = useState("");
+  const [scheduler, setScheduler] = useState<SchedulerStatus | null>(null);
 
   // Test room form state
   const [testRakats,   setTestRakats]   = useState(8);
@@ -77,17 +79,31 @@ export default function AdminPage() {
   };
 
   const load = useCallback(async (k: string) => {
-    const [ov, rm, us] = await Promise.all([
+    const [ov, rm, us, sched] = await Promise.all([
       adminFetch("/admin/overview",     k).then(r => r.json()),
       adminFetch("/admin/rooms/status", k).then(r => r.json()),
       adminFetch("/admin/users",        k).then(r => r.json()),
+      adminFetch("/admin/scheduler",    k).then(r => r.json()),
     ]);
     if (ov.detail === "Invalid or missing admin key") return false;
     setOverview(ov);
     setRooms(Array.isArray(rm) ? rm : []);
     setUsers(Array.isArray(us) ? us : []);
+    setScheduler(sched);
     return true;
   }, []);
+
+  const toggleScheduler = async () => {
+    const action = scheduler?.enabled ? "disable" : "enable";
+    const r = await adminFetch(`/admin/scheduler/${action}`, key, { method: "POST" });
+    const data = await r.json();
+    if (r.ok) {
+      setScheduler(data);
+      showToast(`✓ Scheduler ${data.enabled ? "enabled" : "disabled"}`);
+    } else {
+      showToast("✗ Could not toggle scheduler", false);
+    }
+  };
 
   const handleLogin = async () => {
     const ok = await load(key);
@@ -268,6 +284,28 @@ export default function AdminPage() {
                 <div className="text-xs text-gray-500 mt-0.5">{s.label}</div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Scheduler toggle */}
+        {scheduler !== null && (
+          <div className="glass-card p-4 flex items-center justify-between">
+            <div>
+              <span className="text-sm font-medium text-white">Auto Scheduler</span>
+              {!scheduler.enabled && (
+                <p className="text-xs text-red-400 mt-0.5">Auto room creation paused</p>
+              )}
+            </div>
+            <button
+              onClick={toggleScheduler}
+              className={`px-4 py-1.5 rounded-full text-xs font-bold border transition-all ${
+                scheduler.enabled
+                  ? "bg-green-900/30 border-green-700/50 text-green-400 hover:bg-green-900/50"
+                  : "bg-red-900/30 border-red-700/50 text-red-400 hover:bg-red-900/50"
+              }`}
+            >
+              {scheduler.enabled ? "ON" : "OFF"}
+            </button>
           </div>
         )}
 
