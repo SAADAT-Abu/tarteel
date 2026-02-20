@@ -31,6 +31,10 @@ jobs:
             echo "── Pulling latest code ──"
             git pull origin main
 
+            echo "── Running DB migrations ──"
+            docker compose -f docker-compose.prod.yml exec -T db psql -U tarteel -d tarteel \
+              -f /dev/stdin < backend/migrations/001_feature_additions.sql || true
+
             echo "── Rebuilding and restarting services ──"
             docker compose -f docker-compose.prod.yml up -d --build
 
