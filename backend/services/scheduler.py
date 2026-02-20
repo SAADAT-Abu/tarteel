@@ -340,9 +340,33 @@ async def room_cleanup_job(room_slot_id: str) -> None:
         logger.error(f"room_cleanup_job failed for {room_slot_id}: {e}", exc_info=True)
 
 
+async def expire_private_rooms_job() -> None:
+    """Mark private rooms older than 6 hours as completed and stop their streams."""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=6)
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(RoomSlot).where(
+                    RoomSlot.is_private == True,
+                    RoomSlot.isha_bucket_utc < cutoff,
+                    RoomSlot.status.notin_(["completed"]),
+                )
+            )
+            expired = result.scalars().all()
+
+        for slot in expired:
+            logger.info(f"Expiring private room {slot.id} (created at {slot.isha_bucket_utc})")
+            await room_cleanup_job(str(slot.id))
+    except Exception as e:
+        logger.error(f"expire_private_rooms_job failed: {e}", exc_info=True)
+
+
 def start_scheduler() -> None:
     scheduler.add_job(daily_room_creation, "cron", hour=2, minute=0,
                       id="daily_room_creation", replace_existing=True)
+    # Expire private rooms older than 6 hours — runs every 30 minutes
+    scheduler.add_job(expire_private_rooms_job, "interval", minutes=30,
+                      id="expire_private_rooms", replace_existing=True)
     # On every startup: reset interrupted builds and reschedule pending rooms
     scheduler.add_job(
         reschedule_pending_rooms, "date",
