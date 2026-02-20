@@ -43,6 +43,11 @@ export default function AudioPlayer({ streamUrl, onProgress }: Props) {
         const hls = new Hls({
           lowLatencyMode: false,
           enableWorker: true,
+          // Always start from segment 0 — the prayer recording begins at the
+          // start of the playlist, not at the live edge. Without this, hls.js
+          // would seek to the end of the growing playlist and the user would
+          // only hear the last few seconds before the stream "ends".
+          startPosition: 0,
           // Buffer aggressively: download well ahead so temporary segment
           // generation slowness (FFmpeg) doesn't stall the player.
           maxBufferLength: 120,          // buffer up to 120s ahead
