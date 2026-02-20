@@ -50,6 +50,23 @@ async def start_stream(room_slot_id: str, concat_file_path: str) -> subprocess.P
     ]
 
     try:
+        # Kill any pre-existing FFmpeg writing to this room's directory.
+        # This handles the case where a previous container left orphaned processes
+        # or where start_stream is called twice for the same room.
+        existing = ACTIVE_STREAMS.pop(room_slot_id, None)
+        if existing and existing.poll() is None:
+            existing.terminate()
+            try:
+                existing.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                existing.kill()
+        # Also pkill by directory pattern to catch orphans not tracked in ACTIVE_STREAMS
+        subprocess.run(
+            ["pkill", "-f", f"hls/{room_slot_id}"],
+            capture_output=True,
+        )
+        import time; time.sleep(0.5)  # brief pause so the OS releases file locks
+
         log_file = open(log_path, "w")
         proc = subprocess.Popen(
             cmd,
