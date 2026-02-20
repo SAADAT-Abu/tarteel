@@ -45,6 +45,7 @@ services:
       COOKIE_SECURE: "true"                  # HTTPS — httpOnly cookies are Secure
       FRONTEND_URL: https://tarteel.live
       BACKEND_URL: https://api.tarteel.live
+      HLS_SERVE_URL: https://api.tarteel.live
     volumes:
       - ./audio:/app/audio
       - ./hls:/app/hls

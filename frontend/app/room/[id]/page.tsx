@@ -135,7 +135,13 @@ export default function RoomPage({ params }: { params: { id: string } }) {
     socket.emit("join_room", params.id);
     socket.on("room_joined",       (d: { participant_count: number }) => setParticipantCount(d.participant_count));
     socket.on("room_building",     ()                                  => setStatus("building"));
-    socket.on("room_started",      (d: { stream_url: string })        => { setStatus("live"); setStreamUrl(d.stream_url); });
+    socket.on("room_started",      ()                                  => {
+      // Always build the URL from NEXT_PUBLIC_API_URL — never trust the
+      // backend-emitted stream_url which may point to an internal host.
+      const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      setStatus("live");
+      setStreamUrl(`${base}/hls/${params.id}/stream.m3u8`);
+    });
     socket.on("participant_update",(d: { count: number })             => setParticipantCount(d.count));
     socket.on("rakah_update",      (d: { current_rakah: number; total_rakats: number }) =>
       setRakah({ current: d.current_rakah, total: d.total_rakats }));
