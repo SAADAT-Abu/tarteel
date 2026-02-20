@@ -2,7 +2,7 @@
 import uuid
 import secrets
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
@@ -172,9 +172,20 @@ async def invite_friend(
 
 # ── Start stream (creator only) ───────────────────────────────────────────────
 
+async def _build_and_start(room_slot_id: str) -> None:
+    """Background task: build playlist then start stream, notifying via WebSocket."""
+    from ws.events import sio
+    from services.scheduler import build_playlist_job, start_stream_job
+    # Tell everyone in the room that we're building
+    await sio.emit("room_building", {}, room=room_slot_id)
+    await build_playlist_job(room_slot_id)
+    await start_stream_job(room_slot_id)
+
+
 @router.post("/{room_id}/start")
 async def start_private_room(
     room_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -183,23 +194,12 @@ async def start_private_room(
         raise HTTPException(status_code=404, detail="Private room not found")
     if slot.creator_id != current_user.id:
         raise HTTPException(status_code=403, detail="Only the creator can start")
+    if slot.status in ("live", "building"):
+        raise HTTPException(status_code=409, detail="Room is already starting or live")
 
-    from services.scheduler import build_playlist_job, start_stream_job
-    from services.audio.stream_manager import get_stream_url
-
-    if not slot.playlist_built:
-        await build_playlist_job(str(room_id))
-        await db.refresh(slot)
-        if not slot.playlist_built:
-            raise HTTPException(status_code=500, detail="Playlist build failed — check logs")
-
-    await start_stream_job(str(room_id))
-    await db.refresh(slot)
-
-    return {
-        "status": slot.status,
-        "stream_url": get_stream_url(str(room_id)) if slot.status == "live" else None,
-    }
+    # Kick off build + stream start in the background so the HTTP call returns fast
+    background_tasks.add_task(_build_and_start, str(room_id))
+    return {"status": "building"}
 
 
 # ── Delete room (creator only) ────────────────────────────────────────────────

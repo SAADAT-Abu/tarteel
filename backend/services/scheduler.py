@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -8,7 +9,7 @@ from database import AsyncSessionLocal
 from models import RoomSlot, User, UserIshaSchedule, NotificationLog
 from services.notifications import send_whatsapp_reminder, send_email_reminder
 from services.audio.playlist_builder import build_concat_file
-from services.audio.stream_manager import start_stream, stop_stream, get_stream_url
+from services.audio.stream_manager import start_stream, stop_stream, get_stream_url, get_m3u8_path
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -200,12 +201,10 @@ async def build_playlist_job(room_slot_id: str) -> None:
             slot.status = "building"
             await db.commit()
 
-        concat_path = build_concat_file(
-            room_slot_id=room_slot_id,
-            rakats=slot.rakats,
-            juz_number=slot.juz_number,
-            juz_half=slot.juz_half,
-            reciter=slot.reciter,
+        loop = asyncio.get_event_loop()
+        concat_path = await loop.run_in_executor(
+            None, build_concat_file,
+            room_slot_id, slot.rakats, slot.juz_number, slot.juz_half, slot.reciter,
         )
         async with AsyncSessionLocal() as db:
             s = await db.get(RoomSlot, uuid.UUID(room_slot_id))
@@ -282,6 +281,8 @@ async def send_notifications_job(room_slot_id: str, minutes_before: int = 20) ->
 
 async def start_stream_job(room_slot_id: str) -> None:
     try:
+        # 1. Start FFmpeg (non-blocking — Popen returns immediately)
+        proc = None
         async with AsyncSessionLocal() as db:
             slot = await db.get(RoomSlot, uuid.UUID(room_slot_id))
             if not slot:
@@ -290,19 +291,34 @@ async def start_stream_job(room_slot_id: str) -> None:
             if not slot.stream_path:
                 logger.error(f"start_stream_job: no playlist for {room_slot_id} — run build first")
                 return
-
             proc = await start_stream(room_slot_id, slot.stream_path)
-            if proc:
+
+        if not proc:
+            logger.error(f"FFmpeg failed to start for {room_slot_id}")
+            return
+
+        # 2. Wait for the HLS manifest to be written (first segment takes ~6–10s)
+        m3u8 = get_m3u8_path(room_slot_id)
+        for _ in range(90):          # up to 45 s
+            await asyncio.sleep(0.5)
+            if m3u8.exists() and m3u8.stat().st_size > 50:
+                break
+        else:
+            logger.error(f"HLS manifest not ready after 45s for {room_slot_id}")
+            return
+
+        # 3. Mark live in DB and notify all connected clients
+        async with AsyncSessionLocal() as db:
+            slot = await db.get(RoomSlot, uuid.UUID(room_slot_id))
+            if slot:
                 slot.status = "live"
                 slot.started_at = datetime.now(timezone.utc)
                 await db.commit()
 
-                from ws.events import sio
-                stream_url = get_stream_url(room_slot_id)
-                await sio.emit("room_started", {"stream_url": stream_url}, room=room_slot_id)
-                logger.info(f"Stream started for {room_slot_id}")
-            else:
-                logger.error(f"FFmpeg failed to start for {room_slot_id}")
+        from ws.events import sio
+        stream_url = get_stream_url(room_slot_id)
+        await sio.emit("room_started", {"stream_url": stream_url}, room=room_slot_id)
+        logger.info(f"Stream started and manifest ready for {room_slot_id}")
     except Exception as e:
         logger.error(f"start_stream_job failed for {room_slot_id}: {e}", exc_info=True)
 

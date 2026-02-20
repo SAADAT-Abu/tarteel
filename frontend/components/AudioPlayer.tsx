@@ -73,13 +73,16 @@ export default function AudioPlayer({ streamUrl, onProgress }: Props) {
         hls.on(Hls.Events.ERROR, (_ev, data) => {
           if (!data.fatal) return;
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-            // Network blip — try to recover
-            hls.startLoad();
+            // Manifest/segment not ready yet (e.g. FFmpeg still writing first segment).
+            // Destroy and reinitialise after a short delay so we retry the manifest from scratch.
+            setTimeout(() => {
+              if (!audioRef.current) return;
+              hls.destroy();
+              initPlayer();
+            }, 3000);
           } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-            // Media decode error — try recovery, then reinit
             hls.recoverMediaError();
           } else {
-            // Fatal, unrecoverable
             console.error("HLS fatal error:", data);
           }
         });
@@ -174,10 +177,10 @@ export default function AudioPlayer({ streamUrl, onProgress }: Props) {
       <div className="text-center">
         {retrying ? (
           <p className="text-yellow-400/80 text-sm">Reconnecting…</p>
-        ) : stalled && !playing ? (
+        ) : stalled ? (
           <p className="text-yellow-400/80 text-sm">Buffering…</p>
         ) : playing ? (
-          <p className="text-gray-400 text-sm">Live broadcast · audio is playing</p>
+          <p className="text-gray-400 text-sm">Audio is playing</p>
         ) : (
           <button className="px-6 py-2 border border-mosque-gold/40 text-mosque-gold text-sm rounded-full hover:bg-mosque-gold/10 transition-all">
             Tap to start audio

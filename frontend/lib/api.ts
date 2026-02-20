@@ -119,7 +119,7 @@ export const privateRoomsApi = {
     api.post<{ id: string; invite_code: string; status: string; room_url: string }>("/private-rooms", data),
   list: () => api.get<{ created: PrivateRoom[]; invited: PrivateRoom[] }>("/private-rooms"),
   invite: (roomId: string, friendId: string) => api.post(`/private-rooms/${roomId}/invite/${friendId}`),
-  start: (roomId: string) => api.post(`/private-rooms/${roomId}/start`),
+  start: (roomId: string) => api.post<{ status: string; stream_url?: string | null }>(`/private-rooms/${roomId}/start`),
   delete: (roomId: string) => api.delete(`/private-rooms/${roomId}`),
 };
 

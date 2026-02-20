@@ -9,21 +9,71 @@ import RakahIndicator from "@/components/RakahIndicator";
 
 type RoomStatus = "waiting" | "building" | "live" | "ended";
 
-function PrayerProgress({ pct, current, total }: { pct: number; current: number; total: number }) {
-  const fmtMin = (s: number) => {
-    const m = Math.floor(s / 60);
-    const sec = Math.floor(s % 60);
-    return `${m}:${sec.toString().padStart(2, "0")}`;
-  };
-  const remaining = Math.max(0, total - current);
+// Fixed duration estimates per rakah (seconds)
+const FIXED_RUKU   = 15;
+const FIXED_ITAL   = 8;
+const FIXED_SUJOOD = 15;
+const FIXED_JALSA  = 5;
+const FIXED_TOTAL  = FIXED_RUKU + FIXED_ITAL + FIXED_SUJOOD + FIXED_JALSA + FIXED_SUJOOD; // 58s
+
+function getPrayerPhase(timeInRakah: number, timePerRakah: number): string {
+  const qiyam = Math.max(0, timePerRakah - FIXED_TOTAL - 10); // 10s transition budget
+  const t = timeInRakah;
+  if (t < qiyam)                                   return "Reciting Quran";
+  if (t < qiyam + FIXED_RUKU)                     return "Ruku\u02BF (Bowing)";
+  if (t < qiyam + FIXED_RUKU + FIXED_ITAL)        return "Rising from Ruku\u02BF";
+  if (t < qiyam + FIXED_RUKU + FIXED_ITAL + FIXED_SUJOOD)
+                                                   return "Sujood";
+  if (t < qiyam + FIXED_RUKU + FIXED_ITAL + FIXED_SUJOOD + FIXED_JALSA)
+                                                   return "Sitting";
+  return "Sujood";
+}
+
+function PrayerProgress({
+  pct, current, total, totalRakats,
+}: {
+  pct: number; current: number; total: number; totalRakats: number;
+}) {
+  const fmtMin = (s: number) =>
+    `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+
+  const timePerRakah = total / totalRakats;
+  const currentRakah = Math.min(Math.floor(current / timePerRakah) + 1, totalRakats);
+  const timeInRakah  = current - (currentRakah - 1) * timePerRakah;
+  const phase        = getPrayerPhase(timeInRakah, timePerRakah);
+  const remaining    = Math.max(0, total - current);
+
   return (
-    <div className="w-full space-y-1.5">
-      <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
-        <div
-          className="h-full bg-mosque-gold rounded-full transition-all duration-1000"
-          style={{ width: `${Math.min(pct, 100)}%` }}
-        />
+    <div className="w-full space-y-3">
+      {/* Rakah + phase label */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-baseline gap-1">
+          <span className="text-mosque-gold font-bold text-base">Rakah {currentRakah}</span>
+          <span className="text-gray-500 text-xs">of {totalRakats}</span>
+        </div>
+        <span className="text-xs text-gray-400 font-medium">{phase}</span>
       </div>
+
+      {/* Segmented bar — one segment per rakah */}
+      <div className="flex gap-0.5 h-2">
+        {Array.from({ length: totalRakats }, (_, i) => {
+          const isComplete = i + 1 < currentRakah;
+          const isCurrent  = i + 1 === currentRakah;
+          const segPct     = isCurrent
+            ? Math.min(((current - i * timePerRakah) / timePerRakah) * 100, 100)
+            : isComplete ? 100 : 0;
+          return (
+            <div key={i} className="flex-1 bg-white/10 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-mosque-gold rounded-full transition-all duration-1000"
+                style={{ width: `${segPct}%` }}
+              />
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Time labels */}
       <div className="flex justify-between text-xs text-gray-500">
         <span>{fmtMin(current)} in</span>
         <span>{fmtMin(remaining)} remaining</span>
@@ -84,6 +134,7 @@ export default function RoomPage({ params }: { params: { id: string } }) {
     const socket = getSocket();
     socket.emit("join_room", params.id);
     socket.on("room_joined",       (d: { participant_count: number }) => setParticipantCount(d.participant_count));
+    socket.on("room_building",     ()                                  => setStatus("building"));
     socket.on("room_started",      (d: { stream_url: string })        => { setStatus("live"); setStreamUrl(d.stream_url); });
     socket.on("participant_update",(d: { count: number })             => setParticipantCount(d.count));
     socket.on("rakah_update",      (d: { current_rakah: number; total_rakats: number }) =>
@@ -92,6 +143,7 @@ export default function RoomPage({ params }: { params: { id: string } }) {
 
     return () => {
       socket.off("room_joined");
+      socket.off("room_building");
       socket.off("room_started");
       socket.off("participant_update");
       socket.off("rakah_update");
@@ -109,8 +161,12 @@ export default function RoomPage({ params }: { params: { id: string } }) {
     setStarting(true);
     try {
       await privateRoomsApi.start(room.id);
-      // room_started WebSocket event will flip status to "live"
+      // REST returns {status:"building"} immediately; WebSocket events
+      // room_building → building UI, then room_started → live UI
+      setStatus("building");
     } catch {
+      /* ignore — error state handled by UI staying on waiting */
+    } finally {
       setStarting(false);
     }
   };
@@ -337,15 +393,21 @@ export default function RoomPage({ params }: { params: { id: string } }) {
                 streamUrl={streamUrl}
                 onProgress={(pct, current, total) => setProgress({ pct, current, total })}
               />
-              <p className="text-gray-500 text-xs mt-4">Taraweeh is in progress</p>
-              {progress && progress.total > 0 && (
-                <div className="mt-4">
-                  <PrayerProgress pct={progress.pct} current={progress.current} total={progress.total} />
+              {progress && progress.total > 0 ? (
+                <div className="mt-6">
+                  <PrayerProgress
+                    pct={progress.pct}
+                    current={progress.current}
+                    total={progress.total}
+                    totalRakats={room.rakats}
+                  />
                 </div>
+              ) : (
+                <p className="text-gray-500 text-xs mt-4">Taraweeh is in progress</p>
               )}
             </div>
 
-            {/* Rakat progress */}
+            {/* Rakat dots (from WebSocket, shown alongside time-based progress when available) */}
             {rakah && <RakahIndicator current={rakah.current} total={rakah.total} />}
           </div>
         )}
