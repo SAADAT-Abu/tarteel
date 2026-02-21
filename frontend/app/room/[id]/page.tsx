@@ -31,7 +31,8 @@ function computePrayerBreaks(
   const numPrayers = Math.floor(rakats / 2);
   const numBreaks  = numPrayers - 1; // no break after the very last prayer
   if (numBreaks <= 0) return [];
-  const netTime       = Math.max(0, total - numBreaks * INTER_PRAYER_BREAK);
+  const netTime = total - numBreaks * INTER_PRAYER_BREAK;
+  if (netTime <= 0) return []; // total not yet reliable (< break time budget)
   const timePerPrayer = netTime / numPrayers;
   return Array.from({ length: numBreaks }, (_, k) => {
     const start = (k + 1) * timePerPrayer + k * INTER_PRAYER_BREAK;
