@@ -29,6 +29,7 @@ jobs:
             cd /opt/tarteel
 
             echo "── Pulling latest code ──"
+            sudo chown -R deploy:deploy /opt/tarteel/.git 2>/dev/null || true
             git pull origin main
 
             echo "── Running DB migrations ──"
