@@ -204,24 +204,23 @@ export default function RegisterPage() {
             <div className="space-y-4">
               <h2 className="text-lg font-bold text-white mb-1">Prayer Reminders</h2>
               <p className="text-gray-500 text-sm mb-5">
-                We'll notify you 20 minutes before Taraweeh begins.
+                We'll notify you before Taraweeh begins.
               </p>
 
-              <Field label="WhatsApp Number (optional)">
-                <input type="tel" value={form.phone} onChange={(e) => update("phone", e.target.value)}
-                  className={inputCls} placeholder="+1 555 000 0000" />
-                <p className="mt-1.5 text-xs text-gray-600">
-                  Include your country code — e.g. +44 7700 900123 · +92 300 000 0000 · +1 555 000 0000
-                </p>
-              </Field>
-
               <div className="space-y-3 pt-1">
-                <CheckOption
-                  checked={form.notify_whatsapp}
-                  onChange={(v) => update("notify_whatsapp", v)}
-                  label="Send WhatsApp reminder"
-                  icon="💬"
-                />
+                {/* WhatsApp — coming soon */}
+                <div className="flex items-center gap-3 opacity-50 cursor-not-allowed select-none">
+                  <div className="w-5 h-5 rounded-md border-2 border-gray-600 flex items-center justify-center shrink-0">
+                    {/* unchecked */}
+                  </div>
+                  <span className="text-gray-400 text-sm flex items-center gap-2">
+                    💬 WhatsApp reminder
+                    <span className="text-xs px-1.5 py-0.5 rounded-full bg-gray-700 text-gray-400 font-medium">
+                      Coming Soon
+                    </span>
+                  </span>
+                </div>
+
                 <CheckOption
                   checked={form.notify_email}
                   onChange={(v) => update("notify_email", v)}

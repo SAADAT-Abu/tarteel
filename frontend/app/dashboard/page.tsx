@@ -182,7 +182,7 @@ export default function DashboardPage() {
                   </p>
                   <div className="mt-4 w-full h-px bg-gradient-to-r from-transparent via-mosque-gold/30 to-transparent" />
                   <p className="text-gray-600 text-xs mt-4">
-                    Rooms open automatically at Isha time
+                    20-rakat rooms open 30 min · 8-rakat rooms open 1 hr after Isha
                   </p>
                 </>
               ) : (
@@ -255,9 +255,9 @@ export default function DashboardPage() {
               <div className="glass-card p-8 animate-fade-in-up">
                 <div className="text-center mb-6">
                   <div className="text-4xl mb-3">🕌</div>
-                  <p className="text-gray-300 font-medium">Rooms open at Isha</p>
+                  <p className="text-gray-300 font-medium">Rooms open after Isha</p>
                   <p className="text-gray-500 text-sm mt-1">
-                    Your room will appear here automatically when Isha begins.
+                    20-rakat rooms start 30 min after Isha · 8-rakat rooms start 1 hr after Isha.
                   </p>
                 </div>
 

@@ -38,6 +38,19 @@ ROOM_TYPES = [
     {"rakats": 20, "juz_per_night": 0.5},
 ]
 
+# How many minutes after local Isha time each room type starts.
+# Isha salah itself takes roughly 20-30 min, so 20R Taraweeh can begin at +30 min.
+# 8R rooms are scheduled later so latecomers to Isha still make it.
+RAKATS_START_DELAY: dict[int, int] = {
+    20: 30,   # 20-rakat: starts 30 min after Isha
+     8: 60,   # 8-rakat:  starts 60 min after Isha
+}
+
+
+def _get_stream_start(slot: "RoomSlot") -> datetime:
+    delay = RAKATS_START_DELAY.get(slot.rakats, 30)
+    return slot.isha_bucket_utc + timedelta(minutes=delay)
+
 
 def _get_ramadan_start() -> datetime:
     from datetime import date
@@ -118,17 +131,19 @@ async def daily_room_creation() -> None:
 
 def _schedule_room_jobs(slot: RoomSlot) -> None:
     """Schedule playlist build, notification, stream start, and cleanup jobs for a slot."""
-    slot_id = str(slot.id)
-    build_time   = slot.isha_bucket_utc - timedelta(minutes=90)
-    cleanup_time = slot.isha_bucket_utc + timedelta(hours=3)
-    now = datetime.now(timezone.utc)
+    slot_id      = str(slot.id)
+    stream_start = _get_stream_start(slot)
+    build_time   = stream_start - timedelta(minutes=90)
+    cleanup_time = stream_start + timedelta(hours=3)
+    now          = datetime.now(timezone.utc)
 
     if build_time > now:
         scheduler.add_job(build_playlist_job, "date", run_date=build_time,
                           args=[slot_id], id=f"build_{slot_id}", replace_existing=True)
 
+    # Notify at 30/20/15/10 min before the stream starts (not before isha)
     for mins in (10, 15, 20, 30):
-        notify_time = slot.isha_bucket_utc - timedelta(minutes=mins)
+        notify_time = stream_start - timedelta(minutes=mins)
         if notify_time > now:
             scheduler.add_job(
                 send_notifications_job, "date",
@@ -138,8 +153,8 @@ def _schedule_room_jobs(slot: RoomSlot) -> None:
                 replace_existing=True,
             )
 
-    if slot.isha_bucket_utc > now:
-        scheduler.add_job(start_stream_job, "date", run_date=slot.isha_bucket_utc,
+    if stream_start > now:
+        scheduler.add_job(start_stream_job, "date", run_date=stream_start,
                           args=[slot_id], id=f"start_{slot_id}", replace_existing=True)
 
     scheduler.add_job(room_cleanup_job, "date", run_date=cleanup_time,
@@ -188,8 +203,9 @@ async def reschedule_pending_rooms() -> None:
                 # Reschedule downstream jobs for pending rooms
                 _schedule_room_jobs(slot)
                 # If build window already passed but playlist not yet built → build now
-                build_time = slot.isha_bucket_utc - timedelta(minutes=90)
-                if not slot.playlist_built and build_time <= now and slot.isha_bucket_utc > now:
+                stream_start = _get_stream_start(slot)
+                build_time = stream_start - timedelta(minutes=90)
+                if not slot.playlist_built and build_time <= now and stream_start > now:
                     scheduler.add_job(
                         build_playlist_job, "date",
                         run_date=now + timedelta(seconds=5),
