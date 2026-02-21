@@ -9,24 +9,68 @@ import RakahIndicator from "@/components/RakahIndicator";
 
 type RoomStatus = "waiting" | "building" | "live" | "ended";
 
-// Fixed duration estimates per rakah (seconds)
-const FIXED_RUKU   = 15;
-const FIXED_ITAL   = 8;
-const FIXED_SUJOOD = 15;
-const FIXED_JALSA  = 5;
-const FIXED_TOTAL  = FIXED_RUKU + FIXED_ITAL + FIXED_SUJOOD + FIXED_JALSA + FIXED_SUJOOD; // 58s
+// ── Prayer phase timing constants (seconds) ──────────────────────────────────
+// Based on actual Alafasy audio file durations after trimming:
+//   Silence_15 → 10s, Silence_10 → 5s, Sami → 5s, Silence_40 → 40s
+const SANA_DUR    = 15; // opening takbeer (~5s) + Silence_15 now 10s — first rakat only
+const FATIHA_DUR  = 47; // 7 Fatiha ayahs for Alafasy (measured ~46.5s)
+const RUKU_DUR    = 15; // takbeer (~5s) + Silence_15 now 10s
+const QAWMAH_DUR  =  5; // Sami Allahu liman hamida (trimmed to 5s)
+const SUJOOD_DUR  = 15; // takbeer (~5s) + Silence_15 now 10s
+const JILSAH_DUR  = 10; // takbeer (~5s) + Silence_10 now 5s
+const SUJOOD2_R1  = 20; // takbeer(5) + Silence_15/10s + long takbeer(4) — rakat 1
+const SUJOOD2_R2  = 57; // takbeer(5) + Silence_40(40) + Salam×2(12)   — rakat 2
+const INTER_PRAYER_BREAK = 45; // silence between complete prayers (2-rakat units)
 
-function getPrayerPhase(timeInRakah: number, timePerRakah: number): string {
-  const qiyam = Math.max(0, timePerRakah - FIXED_TOTAL - 10); // 10s transition budget
-  const t = timeInRakah;
-  if (t < qiyam)                                   return "Reciting Quran";
-  if (t < qiyam + FIXED_RUKU)                     return "Ruku\u02BF (Bowing)";
-  if (t < qiyam + FIXED_RUKU + FIXED_ITAL)        return "Rising from Ruku\u02BF";
-  if (t < qiyam + FIXED_RUKU + FIXED_ITAL + FIXED_SUJOOD)
-                                                   return "Sujood";
-  if (t < qiyam + FIXED_RUKU + FIXED_ITAL + FIXED_SUJOOD + FIXED_JALSA)
-                                                   return "Sitting";
-  return "Sujood";
+/** Returns approximate start/end times (seconds) for each inter-prayer break. */
+function computePrayerBreaks(
+  total: number,
+  rakats: number,
+): { start: number; end: number }[] {
+  if (rakats < 4 || total <= 0) return [];
+  const numPrayers = Math.floor(rakats / 2);
+  const numBreaks  = numPrayers - 1; // no break after the very last prayer
+  if (numBreaks <= 0) return [];
+  const netTime       = Math.max(0, total - numBreaks * INTER_PRAYER_BREAK);
+  const timePerPrayer = netTime / numPrayers;
+  return Array.from({ length: numBreaks }, (_, k) => {
+    const start = (k + 1) * timePerPrayer + k * INTER_PRAYER_BREAK;
+    return { start, end: start + INTER_PRAYER_BREAK };
+  });
+}
+
+/**
+ * Determines the current prayer phase label.
+ * isFirstOfPrayer: rakat 1 of a 2-rakat prayer unit (has opening Sana, shorter sujood 2).
+ * isSecondOfPrayer: rakat 2 (ends with long tashahhud + tasleem).
+ */
+function getPrayerPhase(
+  timeInRakah: number,
+  timePerRakah: number,
+  isFirstOfPrayer: boolean,
+): string {
+  const sujood2  = isFirstOfPrayer ? SUJOOD2_R1 : SUJOOD2_R2;
+  const fixedEnd = RUKU_DUR + QAWMAH_DUR + SUJOOD_DUR + JILSAH_DUR + sujood2;
+  const fixedStart = isFirstOfPrayer ? (SANA_DUR + FATIHA_DUR) : FATIHA_DUR;
+  const quranDur = Math.max(0, timePerRakah - fixedStart - fixedEnd);
+
+  let t = timeInRakah;
+  if (isFirstOfPrayer) {
+    if (t < SANA_DUR)  return "Sana";
+    t -= SANA_DUR;
+  }
+  if (t < FATIHA_DUR) return "Al-Fatiha";
+  t -= FATIHA_DUR;
+  if (t < quranDur)   return "Reciting Quran";
+  t -= quranDur;
+  if (t < RUKU_DUR)   return "Ruku\u02BF";
+  t -= RUKU_DUR;
+  if (t < QAWMAH_DUR) return "Rising";
+  t -= QAWMAH_DUR;
+  if (t < SUJOOD_DUR) return "Sujood";
+  t -= SUJOOD_DUR;
+  if (t < JILSAH_DUR) return "Sitting";
+  return isFirstOfPrayer ? "Sujood (2nd)" : "Tashahhud";
 }
 
 function PrayerProgress({
@@ -37,10 +81,21 @@ function PrayerProgress({
   const fmtMin = (s: number) =>
     `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
-  const timePerRakah = total / totalRakats;
-  const currentRakah = Math.min(Math.floor(current / timePerRakah) + 1, totalRakats);
-  const timeInRakah  = current - (currentRakah - 1) * timePerRakah;
-  const phase        = getPrayerPhase(timeInRakah, timePerRakah);
+  const breaks = computePrayerBreaks(total, totalRakats);
+
+  // Compute net current time (strip out elapsed break time for phase detection)
+  let netCurrent = current;
+  for (const b of breaks) {
+    if (current > b.end)        netCurrent -= INTER_PRAYER_BREAK;
+    else if (current > b.start) netCurrent -= (current - b.start);
+  }
+
+  const netTotal     = Math.max(total - breaks.length * INTER_PRAYER_BREAK, 1);
+  const timePerRakah = netTotal / totalRakats;
+  const currentRakah = Math.min(Math.floor(netCurrent / timePerRakah) + 1, totalRakats);
+  const timeInRakah  = Math.max(0, netCurrent - (currentRakah - 1) * timePerRakah);
+  const isFirstOfPrayer = currentRakah % 2 === 1;
+  const phase        = getPrayerPhase(timeInRakah, timePerRakah, isFirstOfPrayer);
   const remaining    = Math.max(0, total - current);
 
   return (
@@ -96,6 +151,7 @@ export default function RoomPage({ params }: { params: { id: string } }) {
   const [friends, setFriends]               = useState<Friend[]>([]);
   const [inviteBusy, setInviteBusy]         = useState<Record<string, boolean>>({});
   const [inviteDone, setInviteDone]         = useState<Record<string, boolean>>({});
+  const [breakCountdown, setBreakCountdown] = useState<number | null>(null);
 
   const isCreator = !!(room?.is_private && user && room.creator_id === user.id);
 
@@ -397,7 +453,13 @@ export default function RoomPage({ params }: { params: { id: string } }) {
             <div className="glass-card p-6 mosque-glow text-center">
               <AudioPlayer
                 streamUrl={streamUrl}
-                onProgress={(pct, current, total) => setProgress({ pct, current, total })}
+                onProgress={(pct, current, total) => {
+                  setProgress({ pct, current, total });
+                  if (!room) return;
+                  const breaks = computePrayerBreaks(total, room.rakats);
+                  const active = breaks.find(b => current >= b.start && current < b.end);
+                  setBreakCountdown(active ? Math.ceil(active.end - current) : null);
+                }}
               />
               {progress && progress.total > 0 ? (
                 <div className="mt-6">
@@ -415,6 +477,38 @@ export default function RoomPage({ params }: { params: { id: string } }) {
 
             {/* Rakat dots (from WebSocket, shown alongside time-based progress when available) */}
             {rakah && <RakahIndicator current={rakah.current} total={rakah.total} />}
+          </div>
+        )}
+
+        {/* ── Inter-prayer break countdown overlay ──────────────────────────── */}
+        {breakCountdown !== null && status === "live" && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-mosque-darkest/80 backdrop-blur-md">
+            <div className="glass-card p-10 text-center max-w-xs w-full mx-4 mosque-glow animate-fade-in-up">
+              <div className="text-mosque-gold/60 text-xs uppercase tracking-widest mb-6 font-medium">
+                Prayer Complete
+              </div>
+              {/* Countdown ring */}
+              <div className="relative inline-flex items-center justify-center mb-6">
+                <svg className="w-32 h-32 -rotate-90" viewBox="0 0 120 120">
+                  <circle cx="60" cy="60" r="54" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="8" />
+                  <circle
+                    cx="60" cy="60" r="54" fill="none"
+                    stroke="rgb(218,165,32)"
+                    strokeWidth="8"
+                    strokeLinecap="round"
+                    strokeDasharray={`${2 * Math.PI * 54}`}
+                    strokeDashoffset={`${2 * Math.PI * 54 * (1 - breakCountdown / INTER_PRAYER_BREAK)}`}
+                    style={{ transition: "stroke-dashoffset 1s linear" }}
+                  />
+                </svg>
+                <div className="absolute flex flex-col items-center">
+                  <span className="text-4xl font-bold text-mosque-gold leading-none">{breakCountdown}</span>
+                  <span className="text-gray-500 text-xs mt-1">seconds</span>
+                </div>
+              </div>
+              <p className="text-white text-base font-medium mb-1">Continuing to next prayer</p>
+              <p className="text-gray-500 text-sm">Take a moment · اغتنم هذه اللحظة</p>
+            </div>
           </div>
         )}
 
