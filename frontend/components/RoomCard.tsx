@@ -1,6 +1,5 @@
 import Link from "next/link";
 import type { RoomSlot } from "@/lib/api";
-import { ROOM_DURATION } from "@/lib/api";
 
 const ROOM_CONFIG: Record<string, { icon: string; label: string; color: string }> = {
   "8_1.0":  { icon: "🌙", label: "Short · Full Juz",  color: "from-indigo-900/40 to-mosque-dark/60" },
@@ -15,9 +14,8 @@ interface Props {
 }
 
 export default function RoomCard({ room }: Props) {
-  const key      = `${room.rakats}_${room.juz_per_night}`;
-  const config   = ROOM_CONFIG[key] ?? { icon: "🌙", label: "", color: "from-mosque-navy to-mosque-dark" };
-  const duration = ROOM_DURATION[key] || 60;
+  const key    = `${room.rakats}_${room.juz_per_night}`;
+  const config = ROOM_CONFIG[key] ?? { icon: "🌙", label: "", color: "from-mosque-navy to-mosque-dark" };
 
   const juzLabel =
     room.juz_half === 1 ? `Juz ${room.juz_number} · 1st half`
@@ -85,16 +83,11 @@ export default function RoomCard({ room }: Props) {
             <span className="text-mosque-gold text-xs">▸</span>
             <span>{juzLabel}</span>
           </div>
-          <div className="flex items-center gap-2 text-xs text-gray-500">
-            <span>⏱</span>
-            <span>~{duration} min</span>
-            {room.participant_count > 0 && (
-              <>
-                <span className="text-gray-700">·</span>
-                <span className="text-white/70">{room.participant_count} praying</span>
-              </>
-            )}
-          </div>
+          {room.participant_count > 0 && (
+            <div className="flex items-center gap-2 text-xs text-gray-500">
+              <span className="text-white/70">{room.participant_count} praying</span>
+            </div>
+          )}
         </div>
 
         {/* CTA */}

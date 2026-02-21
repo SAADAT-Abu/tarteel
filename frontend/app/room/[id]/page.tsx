@@ -94,20 +94,14 @@ function PrayerProgress({
   const netTotal     = Math.max(total - breaks.length * INTER_PRAYER_BREAK, 1);
   const timePerRakah = netTotal / totalRakats;
   const currentRakah = Math.min(Math.floor(netCurrent / timePerRakah) + 1, totalRakats);
-  const timeInRakah  = Math.max(0, netCurrent - (currentRakah - 1) * timePerRakah);
-  const isFirstOfPrayer = currentRakah % 2 === 1;
-  const phase        = getPrayerPhase(timeInRakah, timePerRakah, isFirstOfPrayer);
   const remaining    = Math.max(0, total - current);
 
   return (
     <div className="w-full space-y-3">
-      {/* Rakah + phase label */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-baseline gap-1">
-          <span className="text-mosque-gold font-bold text-base">Rakah {currentRakah}</span>
-          <span className="text-gray-500 text-xs">of {totalRakats}</span>
-        </div>
-        <span className="text-xs text-gray-400 font-medium">{phase}</span>
+      {/* Rakah label */}
+      <div className="flex items-baseline gap-1">
+        <span className="text-mosque-gold font-bold text-base">Rakah {currentRakah}</span>
+        <span className="text-gray-500 text-xs">of {totalRakats}</span>
       </div>
 
       {/* Segmented bar — one segment per rakah */}
@@ -263,7 +257,9 @@ export default function RoomPage({ params }: { params: { id: string } }) {
     </div>
   );
 
-  const juzLabel    = room.juz_half === 1
+  const juzLabel = room.juz_per_night === 0.25
+    ? `Juz ${room.juz_number} — ¼`
+    : room.juz_half === 1
     ? `Juz ${room.juz_number} — 1st half`
     : room.juz_half === 2
     ? `Juz ${room.juz_number} — 2nd half`

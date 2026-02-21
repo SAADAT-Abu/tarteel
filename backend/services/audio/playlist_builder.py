@@ -42,7 +42,7 @@ Prayer structure (repeating 2-rakat units = 1 complete prayer):
 import logging
 from pathlib import Path
 from config import get_settings
-from utils.juz_data import get_juz_ayahs, distribute_ayahs_to_rakats, AyahKey
+from utils.juz_data import get_juz_ayahs, get_juz_quarter, distribute_ayahs_to_rakats, AyahKey
 from services.audio.downloader import get_audio_path
 
 logger = logging.getLogger(__name__)
@@ -144,12 +144,16 @@ def build_concat_file(
     juz_number: int,
     juz_half: int | None,
     reciter: str,
+    juz_per_night: float = 1.0,
 ) -> Path:
     """
     Build a single FFmpeg concat file for a room.
     Returns the path to the concat .txt file.
     """
-    ayahs = get_juz_ayahs(juz_number, half=juz_half)
+    if juz_per_night == 0.25:
+        ayahs = get_juz_quarter(juz_number, juz_half or 1)
+    else:
+        ayahs = get_juz_ayahs(juz_number, half=juz_half)
 
     # Al-Fatiha (Surah 1) is recited separately as a fixed step in every rakat.
     # Strip it from the juz portion so it is never played twice,

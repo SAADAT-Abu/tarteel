@@ -258,7 +258,7 @@ async def build_playlist_job(room_slot_id: str) -> None:
         loop = asyncio.get_event_loop()
         concat_path = await loop.run_in_executor(
             None, build_concat_file,
-            room_slot_id, slot.rakats, slot.juz_number, slot.juz_half, slot.reciter,
+            room_slot_id, slot.rakats, slot.juz_number, slot.juz_half, slot.reciter, slot.juz_per_night,
         )
         async with AsyncSessionLocal() as db:
             s = await db.get(RoomSlot, uuid.UUID(room_slot_id))

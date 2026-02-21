@@ -106,6 +106,20 @@ def get_juz_ayahs(juz_num: int, half: int | None = None) -> list[AyahKey]:
     return all_ayahs[midpoint:]
 
 
+def get_juz_quarter(juz_num: int, quarter: int) -> list[AyahKey]:
+    """
+    Return one quarter of a juz.
+    quarter: 1 = first quarter, 2 = second, 3 = third, 4 = fourth.
+    """
+    info = get_juz_info(juz_num)
+    all_ayahs = get_ayahs_in_range(info.start_surah, info.start_ayah, info.end_surah, info.end_ayah)
+    total = len(all_ayahs)
+    size = total // 4
+    start = (quarter - 1) * size
+    end = start + size if quarter < 4 else total
+    return all_ayahs[start:end]
+
+
 def distribute_ayahs_to_rakats(ayahs: list[AyahKey], num_rakats: int) -> list[list[AyahKey]]:
     """Distribute ayahs as evenly as possible across rakats."""
     total = len(ayahs)

@@ -41,14 +41,14 @@ async def create_private_room(
 ):
     if body.rakats not in (8, 20):
         raise HTTPException(status_code=400, detail="rakats must be 8 or 20")
-    if body.juz_per_night not in (0.5, 1.0):
-        raise HTTPException(status_code=400, detail="juz_per_night must be 0.5 or 1.0")
+    if body.juz_per_night not in (0.25, 0.5, 1.0):
+        raise HTTPException(status_code=400, detail="juz_per_night must be 0.25, 0.5 or 1.0")
     if not (1 <= body.juz_number <= 30):
         raise HTTPException(status_code=400, detail="juz_number must be 1-30")
 
     juz_half = None
-    if body.juz_per_night == 0.5:
-        juz_half = 1
+    if body.juz_per_night in (0.5, 0.25):
+        juz_half = 1  # always use first slice (first half or first quarter)
 
     invite_code = secrets.token_urlsafe(9)[:12]
 

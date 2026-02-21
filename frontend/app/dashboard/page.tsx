@@ -319,7 +319,7 @@ export default function DashboardPage() {
                   >
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-sm font-medium text-white">
-                        {r.rakats}R · Juz {r.juz_number} {r.juz_per_night === 0.5 ? "(½)" : ""}
+                        {r.rakats}R · Juz {r.juz_number}{r.juz_per_night === 0.25 ? " (¼)" : r.juz_per_night === 0.5 ? " (½)" : ""}
                       </span>
                       <span className={`text-xs px-2 py-0.5 rounded-full ${
                         r.status === "live" ? "bg-green-900/40 text-green-400" : "bg-gray-800 text-gray-400"
@@ -389,7 +389,7 @@ export default function DashboardPage() {
                   <div>
                     <label className="text-xs text-gray-400 mb-1 block">Amount</label>
                     <div className="flex gap-2">
-                      {[1.0, 0.5].map((j) => (
+                      {([1.0, 0.5, 0.25] as const).map((j) => (
                         <button
                           key={j}
                           onClick={() => setCreateForm((f) => ({ ...f, juz_per_night: j }))}
@@ -399,7 +399,7 @@ export default function DashboardPage() {
                               : "border-gray-700 text-gray-400"
                           }`}
                         >
-                          {j === 1.0 ? "Full Juz" : "Half Juz"}
+                          {j === 1.0 ? "Full" : j === 0.5 ? "Half" : "Quarter"}
                         </button>
                       ))}
                     </div>
