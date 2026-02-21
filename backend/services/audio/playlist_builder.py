@@ -30,8 +30,10 @@ Prayer structure (repeating 2-rakat units = 1 complete prayer):
     8.  Allahu Akbar short          → jilsah
     9.  Silence 10s  [now 5s]       (jilsah pause)
     10. Allahu Akbar short          → sujood 2
-    11. Silence 40s                 (sujood 2 dhikr + rise + tashahhud)
-    12. Salam × 2                   (tasleem — closes this 2-rakat prayer)
+    11. Silence 10s  [now 5s]       (sujood 2 dhikr)
+    12. Allahu Akbar short          → rise to tashahhud
+    13. Silence 45s                 (full tashahhud)
+    14. Salam × 2                   (tasleem — closes this 2-rakat prayer)
 
   After every complete prayer (2 rakats), except the very last:
     Silence 45s (inter_prayer_45s)  (break between prayers, shown as countdown in UI)
@@ -130,8 +132,10 @@ def build_rakat_segments(
         _add(segments, _silence("Silence_15"))         # sujood 2 dhikr (~10s)
         _add(segments, _misc("Allahu_Akbar_long"))     # → stand for rakat 2 (~4s)
     else:
-        # Long silence covers sujood dhikr + rise + tashahhud, then tasleem × 2
-        _add(segments, _silence("Silence_40"))         # tashahhud (~40s)
+        # Sujood 2 dhikr, then rise into tashahhud, then tasleem × 2
+        _add(segments, _silence("Silence_10"))         # sujood 2 dhikr (~5s)
+        _add(segments, _misc("Allahu_akbar_short"))    # → rise to tashahhud (~5s)
+        _add(segments, _silence("Silence_45"))         # full tashahhud (~45s)
         _add(segments, _misc("Salam"))                 # Assalamu Alaikum (1)
         _add(segments, _misc("Salam"))                 # Assalamu Alaikum (2)
 
