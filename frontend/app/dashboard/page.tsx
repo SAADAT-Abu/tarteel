@@ -78,13 +78,25 @@ function RamadanJourney({
     : quranCovered % 1 === 0 ? `${quranCovered}`
     : `${(Math.round(quranCovered * 10) / 10).toFixed(1)}`;
 
+  // Last juz attended (most recent night)
+  const lastSession = history.sessions.length > 0
+    ? history.sessions.reduce((prev, cur) => cur.ramadan_night > prev.ramadan_night ? cur : prev)
+    : null;
+  const lastJuzLabel = lastSession
+    ? lastSession.juz_per_night === 0.5 && lastSession.juz_half != null
+      ? `Juz ${lastSession.juz_number} — ${lastSession.juz_half === 1 ? "1st" : "2nd"} Half`
+      : lastSession.juz_per_night === 0.25 && lastSession.juz_half != null
+      ? `Juz ${lastSession.juz_number} — ${QUARTER_LABELS[lastSession.juz_half - 1] ?? lastSession.juz_half} Qtr`
+      : `Juz ${lastSession.juz_number}`
+    : null;
+
   const attendancePct = currentNight > 0
     ? Math.round((history.total_nights / currentNight) * 100)
     : 0;
 
-  const stats = [
+  const stats: { icon: string; value: string; label: string; sub?: string }[] = [
     { icon: "🌙", value: `${history.total_nights}`,  label: "Nights Prayed" },
-    { icon: "📖", value: qcStr,                       label: "Juz Covered"   },
+    { icon: "📖", value: qcStr,                       label: "Juz Covered", sub: lastJuzLabel ?? undefined },
     { icon: "🔥", value: `${history.current_streak}`, label: "Night Streak"  },
     { icon: "📿", value: `${attendancePct}%`,          label: "Attendance"    },
   ];
@@ -174,6 +186,11 @@ function RamadanJourney({
                 <span className="text-gray-500 text-[11px] text-center leading-tight">
                   {s.label}
                 </span>
+                {s.sub && (
+                  <span className="text-mosque-gold/40 text-[9px] text-center leading-tight">
+                    {s.sub}
+                  </span>
+                )}
               </div>
             ))}
           </div>
