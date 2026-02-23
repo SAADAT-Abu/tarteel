@@ -33,7 +33,7 @@ export default function RoomCard({ room }: Props) {
         ${isLive
           ? "border-mosque-gold/60 shadow-[0_0_30px_rgba(201,168,76,0.2)]"
           : isCompleted
-          ? "border-white/5 opacity-50 cursor-not-allowed"
+          ? "border-white/5 opacity-50"
           : "border-white/10 hover:border-mosque-gold/40 hover:-translate-y-0.5 hover:shadow-[0_8px_30px_rgba(0,0,0,0.4)]"}
       `}
     >
@@ -106,8 +106,6 @@ export default function RoomCard({ room }: Props) {
       </div>
     </div>
   );
-
-  if (isCompleted) return content;
 
   return (
     <Link href={`/room/${room.id}`} className="block group">

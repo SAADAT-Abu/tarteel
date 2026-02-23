@@ -35,9 +35,12 @@ async def get_tonight_rooms(
     if not schedule:
         raise HTTPException(status_code=404, detail="No Isha schedule found for tonight")
 
-    # Find matching room slots for this bucket
+    # Find matching public room slots for this bucket
     result = await db.execute(
-        select(RoomSlot).where(RoomSlot.isha_bucket_utc == schedule.isha_bucket_utc)
+        select(RoomSlot).where(
+            RoomSlot.isha_bucket_utc == schedule.isha_bucket_utc,
+            RoomSlot.is_private == False,   # noqa: E712
+        )
     )
     rooms = result.scalars().all()
 

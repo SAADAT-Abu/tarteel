@@ -106,6 +106,7 @@ async def daily_room_creation() -> None:
                         RoomSlot.rakats == rakats,
                         RoomSlot.juz_per_night == jpn,
                         RoomSlot.reciter == settings.DEFAULT_RECITER,
+                        RoomSlot.is_private == False,   # noqa: E712
                     )
                 )
                 if existing.scalar_one_or_none():
@@ -432,8 +433,13 @@ async def expire_private_rooms_job() -> None:
 
 
 def start_scheduler() -> None:
-    scheduler.add_job(daily_room_creation, "cron", hour=2, minute=0,
+    # Create rooms every 4 hours so new users and missed runs are covered quickly
+    scheduler.add_job(daily_room_creation, "interval", hours=4,
                       id="daily_room_creation", replace_existing=True)
+    # Also run immediately on startup (after 15s to let DB settle)
+    scheduler.add_job(daily_room_creation, "date",
+                      run_date=datetime.now(timezone.utc) + timedelta(seconds=15),
+                      id="startup_room_creation", replace_existing=True)
     # Expire private rooms older than 6 hours — runs every 30 minutes
     scheduler.add_job(expire_private_rooms_job, "interval", minutes=30,
                       id="expire_private_rooms", replace_existing=True)
