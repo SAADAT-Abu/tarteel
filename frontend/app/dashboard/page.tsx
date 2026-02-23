@@ -23,6 +23,18 @@ const ROOM_CONFIG: Record<string, { icon: string; label: string }> = {
 // ── Ramadan Journey component ────────────────────────────────────────────────
 
 const QUARTER_LABELS = ["1st", "2nd", "3rd", "4th"];
+const MONTH_SHORT    = ["","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const MONTH_LONG     = ["","January","February","March","April","May","June","July","August","September","October","November","December"];
+const DOW            = ["Su","Mo","Tu","We","Th","Fr","Sa"];
+
+function LegendDot({ cls, label }: { cls: string; label: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <div className={`w-2.5 h-2.5 rounded-sm ${cls}`} />
+      <span className="text-gray-600 text-[11px]">{label}</span>
+    </div>
+  );
+}
 
 function RamadanJourney({
   history,
@@ -31,12 +43,82 @@ function RamadanJourney({
   history: UserHistory;
   currentNight: number;
 }) {
-  const attendedSet = new Set(history.nights_attended);
+  const [ry, rm, rd] = (history.ramadan_start_date || "2026-02-18").split("-").map(Number);
+  const ramadanStart = new Date(ry, rm - 1, rd);
+  const totalNights  = history.ramadan_total_nights || 30;
+  const ramadanEnd   = new Date(ry, rm - 1, rd + totalNights - 1);
+  const startMonth   = rm;
+  const endMonth     = ramadanEnd.getMonth() + 1;
 
-  // Build a map: night → first session (for tooltip detail)
-  const sessionMap = new Map<number, UserHistory["sessions"][0]>();
+  const [viewMonth, setViewMonth] = useState<number>(() => {
+    const now = new Date();
+    if (now.getFullYear() === ry && now.getMonth() + 1 === endMonth) return endMonth;
+    return startMonth;
+  });
+
+  const attendedSet = new Set(history.nights_attended);
+  const sessionMap  = new Map<number, UserHistory["sessions"][0]>();
   for (const s of history.sessions) {
     if (!sessionMap.has(s.ramadan_night)) sessionMap.set(s.ramadan_night, s);
+  }
+
+  // Quran covered: sum juz_per_night per unique attended night
+  const quranCovered = (() => {
+    const counted = new Set<number>();
+    let total = 0;
+    for (const s of history.sessions) {
+      if (!counted.has(s.ramadan_night)) {
+        counted.add(s.ramadan_night);
+        total += s.juz_per_night;
+      }
+    }
+    return total;
+  })();
+  const qcStr = quranCovered === 0 ? "0"
+    : quranCovered % 1 === 0 ? `${quranCovered}`
+    : `${(Math.round(quranCovered * 10) / 10).toFixed(1)}`;
+
+  const attendancePct = currentNight > 0
+    ? Math.round((history.total_nights / currentNight) * 100)
+    : 0;
+
+  const stats = [
+    { icon: "🌙", value: `${history.total_nights}`,  label: "Nights Prayed" },
+    { icon: "📖", value: qcStr,                       label: "Juz Covered"   },
+    { icon: "🔥", value: `${history.current_streak}`, label: "Night Streak"  },
+    { icon: "📿", value: `${attendancePct}%`,          label: "Attendance"    },
+  ];
+
+  // Calendar helpers
+  const daysInMonth    = new Date(ry, viewMonth, 0).getDate();
+  const firstDayOfWeek = new Date(ry, viewMonth - 1, 1).getDay(); // 0 = Sunday
+
+  function ramadanNightForDate(day: number): number | null {
+    const date = new Date(ry, viewMonth - 1, day);
+    const diff = Math.round((date.getTime() - ramadanStart.getTime()) / 86400000);
+    return diff >= 0 && diff < totalNights ? diff + 1 : null;
+  }
+
+  function hijriLabel(day: number): string {
+    const date = new Date(ry, viewMonth - 1, day);
+    const diff = Math.round((date.getTime() - ramadanStart.getTime()) / 86400000);
+    if (diff >= 0 && diff < totalNights) return `${diff + 1} Ram`;
+    if (diff < 0) {
+      const shaDay = 30 + diff + 1; // assumes Sha'ban = 30 days
+      return `${shaDay > 0 ? shaDay : shaDay + 29} Sha`;
+    }
+    return `${diff - totalNights + 1} Shw`;
+  }
+
+  const tonightDate = currentNight > 0 && currentNight <= totalNights
+    ? new Date(ramadanStart.getTime() + (currentNight - 1) * 86400000)
+    : null;
+
+  function isTonightCell(day: number): boolean {
+    return !!tonightDate
+      && tonightDate.getFullYear() === ry
+      && tonightDate.getMonth() + 1 === viewMonth
+      && tonightDate.getDate() === day;
   }
 
   function nightTooltip(night: number): string {
@@ -48,31 +130,22 @@ function RamadanJourney({
         : s.juz_per_night === 0.25 && s.juz_half != null
         ? `Juz ${s.juz_number} — ${QUARTER_LABELS[s.juz_half - 1] ?? s.juz_half} Quarter`
         : `Juz ${s.juz_number}`;
-    return `Night ${night} · ${juzLabel} · ${s.rakats} Rakats`;
+    return `Night ${night} · ${juzLabel}`;
   }
 
-  const attendancePct =
-    currentNight > 0
-      ? Math.round((history.total_nights / currentNight) * 100)
-      : 0;
-
-  const stats = [
-    { icon: "🌙", value: `${history.total_nights}`,    label: "Nights Prayed" },
-    { icon: "🕌", value: `${history.total_rakats}`,    label: "Rakats"        },
-    { icon: "🔥", value: `${history.current_streak}`,  label: "Night Streak"  },
-    { icon: "📿", value: `${attendancePct}%`,           label: "Attendance"    },
+  const cells: (number | null)[] = [
+    ...Array(firstDayOfWeek).fill(null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
   ];
-
-  const ROWS = [[1,2,3,4,5,6,7,8,9,10],[11,12,13,14,15,16,17,18,19,20],[21,22,23,24,25,26,27,28,29,30]];
+  while (cells.length % 7 !== 0) cells.push(null);
 
   return (
     <div className="animate-fade-in-up" style={{ animationDelay: "0.25s" }}>
       <div className="glass-card overflow-hidden">
-
-        {/* ── Card header with gold accent bar ── */}
         <div className="h-px w-full bg-gradient-to-r from-transparent via-mosque-gold/40 to-transparent" />
         <div className="p-6">
 
+          {/* Header */}
           <div className="flex items-start justify-between mb-6">
             <div>
               <h2 className="text-lg font-semibold text-white tracking-tight">
@@ -87,7 +160,7 @@ function RamadanJourney({
             </span>
           </div>
 
-          {/* ── Stats row ── */}
+          {/* Stats */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
             {stats.map((s) => (
               <div
@@ -105,71 +178,106 @@ function RamadanJourney({
             ))}
           </div>
 
-          {/* ── Divider ── */}
+          {/* Divider */}
           <div className="h-px bg-gradient-to-r from-transparent via-white/8 to-transparent mb-5" />
 
-          {/* ── Calendar ── */}
-          <p className="text-[11px] text-gray-600 uppercase tracking-[0.12em] font-medium mb-3">
-            Ramadan Calendar
+          {/* Calendar header + month nav */}
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-[11px] text-gray-600 uppercase tracking-[0.12em] font-medium">
+              Ramadan Calendar
+            </p>
+            {startMonth !== endMonth && (
+              <div className="flex items-center gap-1.5">
+                {[startMonth, endMonth].map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setViewMonth(m)}
+                    className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-colors ${
+                      viewMonth === m
+                        ? "bg-mosque-gold/15 text-mosque-gold border border-mosque-gold/30"
+                        : "text-gray-500 hover:text-gray-300 border border-transparent"
+                    }`}
+                  >
+                    {MONTH_SHORT[m]}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <p className="text-center text-sm font-medium text-gray-400 mb-3">
+            {MONTH_LONG[viewMonth]} {ry}
           </p>
 
-          <div className="space-y-2">
-            {ROWS.map((row) => (
-              <div key={row[0]} className="grid grid-cols-10 gap-1.5">
-                {row.map((night) => {
-                  const attended = attendedSet.has(night);
-                  const isToday  = night === currentNight;
-                  const isPast   = night < currentNight;
-
-                  let cls =
-                    "relative aspect-square rounded-full flex items-center justify-center " +
-                    "text-[10px] font-semibold select-none transition-all duration-300 ";
-
-                  if (attended) {
-                    cls +=
-                      "bg-mosque-gold text-mosque-dark " +
-                      "shadow-[0_0_12px_rgba(201,168,76,0.45)] scale-105";
-                  } else if (isToday) {
-                    cls +=
-                      "bg-transparent text-mosque-gold " +
-                      "border-2 border-mosque-gold/60 animate-pulse";
-                  } else if (isPast) {
-                    cls +=
-                      "bg-white/[0.025] text-gray-700 border border-white/[0.06]";
-                  } else {
-                    cls +=
-                      "bg-transparent text-gray-800 border border-white/[0.04]";
-                  }
-
-                  return (
-                    <div key={night} title={attended ? nightTooltip(night) : `Night ${night}`}>
-                      <div className={cls}>{night}</div>
-                    </div>
-                  );
-                })}
+          {/* Day-of-week headers */}
+          <div className="grid grid-cols-7 gap-1 mb-1">
+            {DOW.map((dw) => (
+              <div key={dw} className="text-center text-[10px] text-gray-600 font-medium py-1">
+                {dw}
               </div>
             ))}
           </div>
 
-          {/* ── Legend ── */}
-          <div className="flex items-center gap-5 mt-4 flex-wrap">
-            <div className="flex items-center gap-1.5">
-              <div className="w-2.5 h-2.5 rounded-full bg-mosque-gold shadow-[0_0_6px_rgba(201,168,76,0.5)]" />
-              <span className="text-gray-600 text-[11px]">Attended</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <div className="w-2.5 h-2.5 rounded-full bg-white/[0.025] border border-white/[0.06]" />
-              <span className="text-gray-600 text-[11px]">Missed</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <div className="w-2.5 h-2.5 rounded-full border border-white/[0.04]" />
-              <span className="text-gray-600 text-[11px]">Upcoming</span>
-            </div>
+          {/* Calendar grid */}
+          <div className="grid grid-cols-7 gap-1">
+            {cells.map((day, idx) => {
+              if (day === null) {
+                return <div key={`empty-${idx}`} className="min-h-[48px]" />;
+              }
+
+              const night    = ramadanNightForDate(day);
+              const hijri    = hijriLabel(day);
+              const attended = night !== null && attendedSet.has(night);
+              const tonight  = isTonightCell(day);
+              const isRam    = night !== null;
+              const isPast   = night !== null && night < (currentNight || 1);
+
+              const cellCls = [
+                "rounded-lg flex flex-col items-center justify-center py-1.5 gap-0.5 min-h-[48px]",
+                "transition-all duration-300 select-none",
+                attended
+                  ? "bg-mosque-gold/20 border border-mosque-gold/50 shadow-[0_0_6px_rgba(201,168,76,0.2)]"
+                  : tonight
+                  ? "border-2 border-mosque-gold/60 animate-pulse"
+                  : isRam && isPast
+                  ? "bg-white/[0.025] border border-white/[0.06]"
+                  : isRam
+                  ? "border border-white/[0.03]"
+                  : "opacity-30",
+              ].join(" ");
+
+              return (
+                <div
+                  key={day}
+                  title={night && attended ? nightTooltip(night) : night ? `Night ${night}` : undefined}
+                  className={cellCls}
+                >
+                  <span
+                    className={`text-sm font-semibold leading-none ${
+                      attended || tonight ? "text-mosque-gold" : isRam ? "text-gray-300" : "text-gray-600"
+                    }`}
+                  >
+                    {day}
+                  </span>
+                  <span
+                    className={`text-[8px] leading-none ${
+                      hijri.includes("Ram") ? "text-mosque-gold/50" : "text-gray-700"
+                    }`}
+                  >
+                    {hijri}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Legend */}
+          <div className="flex items-center gap-4 mt-4 flex-wrap">
+            <LegendDot cls="bg-mosque-gold/20 border border-mosque-gold/50" label="Attended" />
+            <LegendDot cls="bg-white/[0.025] border border-white/[0.06]" label="Missed" />
+            <LegendDot cls="border border-white/[0.03]" label="Upcoming" />
             {currentNight > 0 && (
-              <div className="flex items-center gap-1.5">
-                <div className="w-2.5 h-2.5 rounded-full border-2 border-mosque-gold/60" />
-                <span className="text-gray-600 text-[11px]">Tonight</span>
-              </div>
+              <LegendDot cls="border-2 border-mosque-gold/60" label="Tonight" />
             )}
           </div>
 

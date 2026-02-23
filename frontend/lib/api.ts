@@ -113,6 +113,8 @@ export interface UserHistory {
     rakats: number;
     joined_at: string;
   }>;
+  ramadan_start_date: string;
+  ramadan_total_nights: number;
 }
 
 // Users
