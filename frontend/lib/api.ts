@@ -113,6 +113,8 @@ export interface UserHistory {
     rakats: number;
     joined_at: string;
   }>;
+  total_juz_covered: number;
+  last_juz: { juz_number: number; juz_half: number | null; juz_per_night: number } | null;
   ramadan_start_date: string;
   ramadan_total_nights: number;
 }

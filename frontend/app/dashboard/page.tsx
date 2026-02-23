@@ -62,33 +62,22 @@ function RamadanJourney({
     if (!sessionMap.has(s.ramadan_night)) sessionMap.set(s.ramadan_night, s);
   }
 
-  // Quran covered: sum juz_per_night per unique attended night
-  const quranCovered = (() => {
-    const counted = new Set<number>();
-    let total = 0;
-    for (const s of history.sessions) {
-      if (!counted.has(s.ramadan_night)) {
-        counted.add(s.ramadan_night);
-        total += s.juz_per_night;
-      }
-    }
-    return total;
-  })();
-  const qcStr = quranCovered === 0 ? "0"
-    : quranCovered % 1 === 0 ? `${quranCovered}`
-    : `${(Math.round(quranCovered * 10) / 10).toFixed(1)}`;
+  // Juz covered — backend-computed, includes public + private rooms
+  const qc = history.total_juz_covered ?? 0;
+  const qcStr = qc === 0 ? "0"
+    : qc % 1 === 0 ? `${qc}`
+    : `${(Math.round(qc * 10) / 10).toFixed(1)}`;
 
-  // Last juz attended (most recent night)
-  const lastSession = history.sessions.length > 0
-    ? history.sessions.reduce((prev, cur) => cur.ramadan_night > prev.ramadan_night ? cur : prev)
-    : null;
-  const lastJuzLabel = lastSession
-    ? lastSession.juz_per_night === 0.5 && lastSession.juz_half != null
-      ? `Juz ${lastSession.juz_number} — ${lastSession.juz_half === 1 ? "1st" : "2nd"} Half`
-      : lastSession.juz_per_night === 0.25 && lastSession.juz_half != null
-      ? `Juz ${lastSession.juz_number} — ${QUARTER_LABELS[lastSession.juz_half - 1] ?? lastSession.juz_half} Qtr`
-      : `Juz ${lastSession.juz_number}`
-    : null;
+  // Last juz attended — from backend (includes public + private rooms, by joined_at desc)
+  const lastJuzLabel = (() => {
+    const lj = history.last_juz;
+    if (!lj) return null;
+    if (lj.juz_per_night === 0.5 && lj.juz_half != null)
+      return `Juz ${lj.juz_number} — ${lj.juz_half === 1 ? "1st" : "2nd"} Half`;
+    if (lj.juz_per_night === 0.25 && lj.juz_half != null)
+      return `Juz ${lj.juz_number} — ${QUARTER_LABELS[lj.juz_half - 1] ?? lj.juz_half} Qtr`;
+    return `Juz ${lj.juz_number}`;
+  })();
 
   const attendancePct = currentNight > 0
     ? Math.round((history.total_nights / currentNight) * 100)
