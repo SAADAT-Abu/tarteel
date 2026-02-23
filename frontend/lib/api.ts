@@ -99,10 +99,27 @@ export const roomsApi = {
   joinRoom: (id: string) => api.post(`/rooms/${id}/join`),
 };
 
+export interface UserHistory {
+  nights_attended: number[];
+  total_nights: number;
+  total_rakats: number;
+  current_streak: number;
+  longest_streak: number;
+  sessions: Array<{
+    ramadan_night: number;
+    juz_number: number;
+    juz_half: number | null;
+    juz_per_night: number;
+    rakats: number;
+    joined_at: string;
+  }>;
+}
+
 // Users
 export const usersApi = {
   getMe: () => api.get<User>("/users/me"),
   updateMe: (data: Partial<User>) => api.put<User>("/users/me", data),
+  getHistory: () => api.get<UserHistory>("/users/me/history"),
 };
 
 // Friends

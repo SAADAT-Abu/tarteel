@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { roomsApi, usersApi, privateRoomsApi, friendsApi, TonightRooms, PrivateRoom, Friend } from "@/lib/api";
+import { roomsApi, usersApi, privateRoomsApi, friendsApi, TonightRooms, PrivateRoom, Friend, UserHistory } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth";
 import CountdownTimer from "@/components/CountdownTimer";
 import RoomCard from "@/components/RoomCard";
@@ -20,6 +20,168 @@ const ROOM_CONFIG: Record<string, { icon: string; label: string }> = {
   "20_0.5": { icon: "✨", label: "20 Rakats · Half Juz" },
 };
 
+// ── Ramadan Journey component ────────────────────────────────────────────────
+
+const QUARTER_LABELS = ["1st", "2nd", "3rd", "4th"];
+
+function RamadanJourney({
+  history,
+  currentNight,
+}: {
+  history: UserHistory;
+  currentNight: number;
+}) {
+  const attendedSet = new Set(history.nights_attended);
+
+  // Build a map: night → first session (for tooltip detail)
+  const sessionMap = new Map<number, UserHistory["sessions"][0]>();
+  for (const s of history.sessions) {
+    if (!sessionMap.has(s.ramadan_night)) sessionMap.set(s.ramadan_night, s);
+  }
+
+  function nightTooltip(night: number): string {
+    const s = sessionMap.get(night);
+    if (!s) return `Night ${night}`;
+    const juzLabel =
+      s.juz_per_night === 0.5 && s.juz_half != null
+        ? `Juz ${s.juz_number} — ${s.juz_half === 1 ? "1st" : "2nd"} Half`
+        : s.juz_per_night === 0.25 && s.juz_half != null
+        ? `Juz ${s.juz_number} — ${QUARTER_LABELS[s.juz_half - 1] ?? s.juz_half} Quarter`
+        : `Juz ${s.juz_number}`;
+    return `Night ${night} · ${juzLabel} · ${s.rakats} Rakats`;
+  }
+
+  const attendancePct =
+    currentNight > 0
+      ? Math.round((history.total_nights / currentNight) * 100)
+      : 0;
+
+  const stats = [
+    { icon: "🌙", value: `${history.total_nights}`,    label: "Nights Prayed" },
+    { icon: "🕌", value: `${history.total_rakats}`,    label: "Rakats"        },
+    { icon: "🔥", value: `${history.current_streak}`,  label: "Night Streak"  },
+    { icon: "📿", value: `${attendancePct}%`,           label: "Attendance"    },
+  ];
+
+  const ROWS = [[1,2,3,4,5,6,7,8,9,10],[11,12,13,14,15,16,17,18,19,20],[21,22,23,24,25,26,27,28,29,30]];
+
+  return (
+    <div className="animate-fade-in-up" style={{ animationDelay: "0.25s" }}>
+      <div className="glass-card overflow-hidden">
+
+        {/* ── Card header with gold accent bar ── */}
+        <div className="h-px w-full bg-gradient-to-r from-transparent via-mosque-gold/40 to-transparent" />
+        <div className="p-6">
+
+          <div className="flex items-start justify-between mb-6">
+            <div>
+              <h2 className="text-lg font-semibold text-white tracking-tight">
+                Ramadan Journey
+              </h2>
+              <p className="text-gray-500 text-xs mt-0.5">
+                Your Taraweeh progress this Ramadan
+              </p>
+            </div>
+            <span className="font-arabic text-mosque-gold/50 text-xl leading-none mt-0.5">
+              ١٤٤٧
+            </span>
+          </div>
+
+          {/* ── Stats row ── */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+            {stats.map((s) => (
+              <div
+                key={s.label}
+                className="rounded-2xl bg-white/[0.03] border border-white/[0.06] px-4 py-3.5 flex flex-col items-center gap-1.5"
+              >
+                <span className="text-xl leading-none">{s.icon}</span>
+                <span className="text-2xl font-bold text-mosque-gold leading-none tabular-nums">
+                  {s.value}
+                </span>
+                <span className="text-gray-500 text-[11px] text-center leading-tight">
+                  {s.label}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {/* ── Divider ── */}
+          <div className="h-px bg-gradient-to-r from-transparent via-white/8 to-transparent mb-5" />
+
+          {/* ── Calendar ── */}
+          <p className="text-[11px] text-gray-600 uppercase tracking-[0.12em] font-medium mb-3">
+            Ramadan Calendar
+          </p>
+
+          <div className="space-y-2">
+            {ROWS.map((row) => (
+              <div key={row[0]} className="grid grid-cols-10 gap-1.5">
+                {row.map((night) => {
+                  const attended = attendedSet.has(night);
+                  const isToday  = night === currentNight;
+                  const isPast   = night < currentNight;
+
+                  let cls =
+                    "relative aspect-square rounded-full flex items-center justify-center " +
+                    "text-[10px] font-semibold select-none transition-all duration-300 ";
+
+                  if (attended) {
+                    cls +=
+                      "bg-mosque-gold text-mosque-dark " +
+                      "shadow-[0_0_12px_rgba(201,168,76,0.45)] scale-105";
+                  } else if (isToday) {
+                    cls +=
+                      "bg-transparent text-mosque-gold " +
+                      "border-2 border-mosque-gold/60 animate-pulse";
+                  } else if (isPast) {
+                    cls +=
+                      "bg-white/[0.025] text-gray-700 border border-white/[0.06]";
+                  } else {
+                    cls +=
+                      "bg-transparent text-gray-800 border border-white/[0.04]";
+                  }
+
+                  return (
+                    <div key={night} title={attended ? nightTooltip(night) : `Night ${night}`}>
+                      <div className={cls}>{night}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+
+          {/* ── Legend ── */}
+          <div className="flex items-center gap-5 mt-4 flex-wrap">
+            <div className="flex items-center gap-1.5">
+              <div className="w-2.5 h-2.5 rounded-full bg-mosque-gold shadow-[0_0_6px_rgba(201,168,76,0.5)]" />
+              <span className="text-gray-600 text-[11px]">Attended</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-2.5 h-2.5 rounded-full bg-white/[0.025] border border-white/[0.06]" />
+              <span className="text-gray-600 text-[11px]">Missed</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-2.5 h-2.5 rounded-full border border-white/[0.04]" />
+              <span className="text-gray-600 text-[11px]">Upcoming</span>
+            </div>
+            {currentNight > 0 && (
+              <div className="flex items-center gap-1.5">
+                <div className="w-2.5 h-2.5 rounded-full border-2 border-mosque-gold/60" />
+                <span className="text-gray-600 text-[11px]">Tonight</span>
+              </div>
+            )}
+          </div>
+
+        </div>
+        <div className="h-px w-full bg-gradient-to-r from-transparent via-mosque-gold/20 to-transparent" />
+      </div>
+    </div>
+  );
+}
+
+// ── Dashboard page ───────────────────────────────────────────────────────────
+
 export default function DashboardPage() {
   const router = useRouter();
   const { user, setUser, clearAuth } = useAuthStore();
@@ -36,6 +198,7 @@ export default function DashboardPage() {
   const [friends, setFriends] = useState<Friend[]>([]);
   const [inviteBusy, setInviteBusy] = useState<Record<string, boolean>>({});
   const [inviteDone, setInviteDone] = useState<Record<string, boolean>>({});
+  const [history, setHistory] = useState<UserHistory | null>(null);
 
   const handleUnauth = useCallback(() => {
     clearAuth();
@@ -70,6 +233,10 @@ export default function DashboardPage() {
 
     privateRoomsApi.list()
       .then((res) => setPrivateRooms(res.data))
+      .catch(() => {});
+
+    usersApi.getHistory()
+      .then((res) => setHistory(res.data))
       .catch(() => {});
   }, [handleUnauth, loadRooms, setUser]);
 
@@ -290,6 +457,14 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
+        )}
+
+        {/* ── Ramadan Journey ─────────────────────────────────────────── */}
+        {history && (
+          <RamadanJourney
+            history={history}
+            currentNight={tonight?.ramadan_night ?? 0}
+          />
         )}
 
         {/* ── Private Rooms ───────────────────────────────────────────── */}
