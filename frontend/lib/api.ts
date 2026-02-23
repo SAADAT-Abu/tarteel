@@ -69,6 +69,7 @@ export interface PrivateRoom {
   rakats: number;
   juz_number: number;
   juz_per_night: number;
+  juz_half: number | null;
   invite_code: string | null;
   participant_count: number;
   started_at: string | null;
@@ -115,7 +116,7 @@ export const friendsApi = {
 
 // Private rooms
 export const privateRoomsApi = {
-  create: (data: { rakats: number; juz_number: number; juz_per_night: number }) =>
+  create: (data: { rakats: number; juz_number: number; juz_per_night: number; juz_slice: number }) =>
     api.post<{ id: string; invite_code: string; status: string; room_url: string }>("/private-rooms", data),
   list: () => api.get<{ created: PrivateRoom[]; invited: PrivateRoom[] }>("/private-rooms"),
   invite: (roomId: string, friendId: string) => api.post(`/private-rooms/${roomId}/invite/${friendId}`),

@@ -29,7 +29,7 @@ export default function DashboardPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [privateRooms, setPrivateRooms] = useState<{ created: PrivateRoom[]; invited: PrivateRoom[] } | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [createForm, setCreateForm] = useState({ rakats: 8, juz_number: 1, juz_per_night: 1.0 });
+  const [createForm, setCreateForm] = useState({ rakats: 8, juz_number: 1, juz_per_night: 1.0, juz_slice: 1 });
   const [creating, setCreating] = useState(false);
   // Post-creation invite step
   const [createdRoom, setCreatedRoom] = useState<{ id: string; room_url: string } | null>(null);
@@ -319,7 +319,15 @@ export default function DashboardPage() {
                   >
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-sm font-medium text-white">
-                        {r.rakats}R · Juz {r.juz_number}{r.juz_per_night === 0.25 ? " (¼)" : r.juz_per_night === 0.5 ? " (½)" : ""}
+                        {r.rakats}R · {(() => {
+                          if (r.juz_per_night === 0.5 && r.juz_half) {
+                            return `Juz ${r.juz_number} — ${r.juz_half === 1 ? "1st" : "2nd"} Half`;
+                          } else if (r.juz_per_night === 0.25 && r.juz_half) {
+                            const q = ["1st","2nd","3rd","4th"][r.juz_half - 1] ?? r.juz_half;
+                            return `Juz ${r.juz_number} — ${q} Quarter`;
+                          }
+                          return `Juz ${r.juz_number}`;
+                        })()}
                       </span>
                       <span className={`text-xs px-2 py-0.5 rounded-full ${
                         r.status === "live" ? "bg-green-900/40 text-green-400" : "bg-gray-800 text-gray-400"
@@ -374,25 +382,12 @@ export default function DashboardPage() {
                   </div>
 
                   <div>
-                    <label className="text-xs text-gray-400 mb-1 block">Juz</label>
-                    <select
-                      value={createForm.juz_number}
-                      onChange={(e) => setCreateForm((f) => ({ ...f, juz_number: Number(e.target.value) }))}
-                      className="w-full bg-mosque-darkest border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-mosque-gold/50"
-                    >
-                      {Array.from({ length: 30 }, (_, i) => i + 1).map((n) => (
-                        <option key={n} value={n}>Juz {n}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
                     <label className="text-xs text-gray-400 mb-1 block">Amount</label>
                     <div className="flex gap-2">
                       {([1.0, 0.5, 0.25] as const).map((j) => (
                         <button
                           key={j}
-                          onClick={() => setCreateForm((f) => ({ ...f, juz_per_night: j }))}
+                          onClick={() => setCreateForm((f) => ({ ...f, juz_per_night: j, juz_number: 1, juz_slice: 1 }))}
                           className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${
                             createForm.juz_per_night === j
                               ? "border-mosque-gold bg-mosque-gold/10 text-mosque-gold"
@@ -403,6 +398,36 @@ export default function DashboardPage() {
                         </button>
                       ))}
                     </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Juz</label>
+                    <select
+                      value={`${createForm.juz_number}-${createForm.juz_slice}`}
+                      onChange={(e) => {
+                        const [jn, js] = e.target.value.split("-").map(Number);
+                        setCreateForm((f) => ({ ...f, juz_number: jn, juz_slice: js }));
+                      }}
+                      className="w-full bg-mosque-darkest border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-mosque-gold/50"
+                    >
+                      {Array.from({ length: 30 }, (_, i) => i + 1).flatMap((n) => {
+                        if (createForm.juz_per_night === 1.0) {
+                          return [<option key={`${n}-1`} value={`${n}-1`}>Juz {n}</option>];
+                        } else if (createForm.juz_per_night === 0.5) {
+                          return [
+                            <option key={`${n}-1`} value={`${n}-1`}>Juz {n} — 1st Half</option>,
+                            <option key={`${n}-2`} value={`${n}-2`}>Juz {n} — 2nd Half</option>,
+                          ];
+                        } else {
+                          return [
+                            <option key={`${n}-1`} value={`${n}-1`}>Juz {n} — 1st Quarter</option>,
+                            <option key={`${n}-2`} value={`${n}-2`}>Juz {n} — 2nd Quarter</option>,
+                            <option key={`${n}-3`} value={`${n}-3`}>Juz {n} — 3rd Quarter</option>,
+                            <option key={`${n}-4`} value={`${n}-4`}>Juz {n} — 4th Quarter</option>,
+                          ];
+                        }
+                      })}
+                    </select>
                   </div>
                 </div>
 

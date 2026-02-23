@@ -22,6 +22,7 @@ class CreatePrivateRoomBody(BaseModel):
     rakats: int = 8
     juz_number: int = 1
     juz_per_night: float = 1.0
+    juz_slice: int = 1  # which half (1-2) or quarter (1-4); ignored for full juz
 
 
 def _are_friends(f: Friendship, uid_a: uuid.UUID, uid_b: uuid.UUID) -> bool:
@@ -48,7 +49,7 @@ async def create_private_room(
 
     juz_half = None
     if body.juz_per_night in (0.5, 0.25):
-        juz_half = 1  # always use first slice (first half or first quarter)
+        juz_half = max(1, body.juz_slice)
 
     invite_code = secrets.token_urlsafe(9)[:12]
 
@@ -119,6 +120,7 @@ async def list_my_private_rooms(
             "rakats": r.rakats,
             "juz_number": r.juz_number,
             "juz_per_night": r.juz_per_night,
+            "juz_half": r.juz_half,
             "invite_code": r.invite_code,
             "participant_count": r.participant_count,
             "started_at": r.started_at.isoformat() if r.started_at else None,
