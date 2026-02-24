@@ -58,11 +58,17 @@ async def register(body: UserRegisterFull, response: Response, db: AsyncSession 
     if result.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    # Geocode city
-    geo = await geocode_city(body.city, body.country)
-    if not geo:
-        raise HTTPException(status_code=400, detail=f"Could not geocode '{body.city}, {body.country}'")
-    lat, lng, tz_name = geo
+    # Try pre-defined region coordinates first (fast, reliable, ensures room bucketing)
+    from utils.regions import lookup_region
+    region_coords = lookup_region(body.country, body.city)
+    if region_coords:
+        lat, lng, tz_name = region_coords
+    else:
+        # Fall back to geocoding for any city not in our regions list
+        geo = await geocode_city(body.city, body.country)
+        if not geo:
+            raise HTTPException(status_code=400, detail=f"Could not geocode '{body.city}, {body.country}'")
+        lat, lng, tz_name = geo
 
     user = User(
         email=body.email,

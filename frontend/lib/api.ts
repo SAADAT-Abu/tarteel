@@ -135,6 +135,11 @@ export const friendsApi = {
   remove: (userId: string) => api.delete(`/friends/${userId}`),
 };
 
+// Regions
+export const regionsApi = {
+  getAll: () => api.get<Record<string, string[]>>("/regions"),
+};
+
 // Private rooms
 export const privateRoomsApi = {
   create: (data: { rakats: number; juz_number: number; juz_per_night: number; juz_slice: number }) =>

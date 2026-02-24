@@ -1,8 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { authApi } from "@/lib/api";
+import { authApi, regionsApi } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth";
 
 const CALC_METHODS = [
@@ -35,6 +35,11 @@ export default function RegisterPage() {
   const [step,    setStep]    = useState(1);
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState("");
+  const [regions, setRegions] = useState<Record<string, string[]>>({});
+
+  useEffect(() => {
+    regionsApi.getAll().then((r) => setRegions(r.data)).catch(() => {});
+  }, []);
 
   const [form, setForm] = useState<RegisterForm>({
     email: "", password: "", name: "",
@@ -45,6 +50,19 @@ export default function RegisterPage() {
 
   const update = (field: keyof RegisterForm, value: unknown) =>
     setForm((f) => ({ ...f, [field]: value }));
+
+  const handleNext = () => {
+    setError("");
+    if (step === 1) {
+      if (!form.email.trim()) return setError("Email is required.");
+      if (form.password.length < 8) return setError("Password must be at least 8 characters.");
+    }
+    if (step === 2) {
+      if (!form.country) return setError("Please select your country.");
+      if (!form.city) return setError("Please select your city or region.");
+    }
+    setStep(step + 1);
+  };
 
   const handleSubmit = async () => {
     setLoading(true);
@@ -143,14 +161,34 @@ export default function RegisterPage() {
           {step === 2 && (
             <div className="space-y-4">
               <h2 className="text-lg font-bold text-white mb-1">Your Location</h2>
-              <p className="text-gray-500 text-sm mb-5">We use this to calculate your Isha time.</p>
-              <Field label="City *">
-                <input type="text" value={form.city} onChange={(e) => update("city", e.target.value)}
-                  className={inputCls} placeholder="e.g. Delhi, Rome, San Francisco" />
-              </Field>
+              <p className="text-gray-500 text-sm mb-5">We use this to calculate your local Isha time.</p>
               <Field label="Country *">
-                <input type="text" value={form.country} onChange={(e) => update("country", e.target.value)}
-                  className={inputCls} placeholder="e.g. India, Italy, United States" />
+                <select
+                  value={form.country}
+                  onChange={(e) => {
+                    update("country", e.target.value);
+                    update("city", "");
+                  }}
+                  className={inputCls}
+                >
+                  <option value="">Select country…</option>
+                  {Object.keys(regions).map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="City / Region *">
+                <select
+                  value={form.city}
+                  onChange={(e) => update("city", e.target.value)}
+                  disabled={!form.country}
+                  className={inputCls + (!form.country ? " opacity-40 cursor-not-allowed" : "")}
+                >
+                  <option value="">{form.country ? "Select city or region…" : "Select country first"}</option>
+                  {(regions[form.country] ?? []).map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
               </Field>
               <Field label="Prayer Time Calculation Method">
                 <select value={form.calc_method} onChange={(e) => update("calc_method", Number(e.target.value))}
@@ -243,7 +281,7 @@ export default function RegisterPage() {
             )}
             {step < 4 ? (
               <button
-                onClick={() => setStep(step + 1)}
+                onClick={handleNext}
                 className="flex-1 py-3 bg-mosque-gold text-mosque-dark font-bold rounded-xl hover:bg-mosque-gold-light transition-all text-sm"
               >
                 Continue →

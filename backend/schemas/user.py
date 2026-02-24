@@ -32,6 +32,14 @@ class UserRegisterStep2(BaseModel):
     country: str
     calc_method: int = 3
 
+    @field_validator("city", "country")
+    @classmethod
+    def strip_required(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("This field is required")
+        return v
+
 
 class UserRegisterStep3(BaseModel):
     rakats: int = 8
