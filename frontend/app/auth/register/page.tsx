@@ -51,11 +51,24 @@ export default function RegisterPage() {
   const update = (field: keyof RegisterForm, value: unknown) =>
     setForm((f) => ({ ...f, [field]: value }));
 
-  const handleNext = () => {
+  const handleNext = async () => {
     setError("");
     if (step === 1) {
       if (!form.email.trim()) return setError("Email is required.");
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) return setError("Please enter a valid email address.");
       if (form.password.length < 8) return setError("Password must be at least 8 characters.");
+      setLoading(true);
+      try {
+        const res = await authApi.checkEmail(form.email.trim());
+        if (!res.data.available) {
+          setError("An account with this email already exists. Please sign in instead.");
+          return;
+        }
+      } catch {
+        // ignore network errors — backend will catch duplicates at submit
+      } finally {
+        setLoading(false);
+      }
     }
     if (step === 2) {
       if (!form.country) return setError("Please select your country.");
@@ -282,9 +295,15 @@ export default function RegisterPage() {
             {step < 4 ? (
               <button
                 onClick={handleNext}
-                className="flex-1 py-3 bg-mosque-gold text-mosque-dark font-bold rounded-xl hover:bg-mosque-gold-light transition-all text-sm"
+                disabled={loading}
+                className="flex-1 py-3 bg-mosque-gold text-mosque-dark font-bold rounded-xl hover:bg-mosque-gold-light transition-all text-sm disabled:opacity-50"
               >
-                Continue →
+                {loading && step === 1 ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="w-4 h-4 border-2 border-mosque-dark/30 border-t-mosque-dark rounded-full animate-spin" />
+                    Checking…
+                  </span>
+                ) : "Continue →"}
               </button>
             ) : (
               <button

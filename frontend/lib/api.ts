@@ -90,6 +90,8 @@ export const authApi = {
     api.post<{ access_token: string; user: User }>("/auth/register", data),
   login: (email: string, password: string) =>
     api.post<{ access_token: string; user: User }>("/auth/login", { email, password }),
+  checkEmail: (email: string) =>
+    api.get<{ available: boolean }>("/auth/check-email", { params: { email } }),
 };
 
 // Rooms

@@ -51,6 +51,13 @@ def create_access_token(user_id: str) -> str:
     return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
+@router.get("/check-email")
+async def check_email(email: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(User).where(User.email == email.lower().strip()))
+    exists = result.scalar_one_or_none() is not None
+    return {"available": not exists}
+
+
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 async def register(body: UserRegisterFull, response: Response, db: AsyncSession = Depends(get_db)):
     # Check email uniqueness
